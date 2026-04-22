@@ -2,9 +2,9 @@ name: Code Quality
 
 on:
   push:
-    branches: [ main, dev, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, dev, develop ]
+    branches: [ main ]
   schedule:
     - cron: '0 0 * * 0' # Weekly on Sunday
 

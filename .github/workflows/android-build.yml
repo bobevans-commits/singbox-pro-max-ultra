@@ -2,7 +2,7 @@ name: Android Build
 
 on:
   push:
-    branches: [main, dev, develop]
+    branches: [main]
     tags: ['v*']
     paths:
       - 'android/**'
