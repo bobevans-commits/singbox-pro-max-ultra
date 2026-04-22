@@ -1,41 +1,4 @@
 ```
-# Dependencies
-.dart_tool/
-.build/
-dependencies/
-
-# Build outputs
-build/
-*.apk
-*.aab
-*.app
-
-# Logs
-*.log
-**/logs
-
-# Environment specific
-.env
-.env.local
-.env.*
-
-# IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Flutter specific
-.flutter-plugins
-.flutter-plugin-dependencies
-.packages
+# CI/CD
+.github/
 ```
