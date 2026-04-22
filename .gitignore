@@ -1,33 +1,27 @@
 ```
+# Build artifacts
+/build/
+/dist/
+
 # Dependencies
+.pub/
 .dart_tool/
 .packages
-.pub/
-pubspec.lock
 
-# Build
-build/
-**/ios/.generated/
-**/android/.generated/
-
-# Testing
-coverage/
-
-# Temporary files
-*.tmp
-*.temp
+# Logs
 *.log
 
-# Environment variables
+# Environment
 .env
 .env.local
 *.env.*
 
-# IDE
+# Editor
 .vscode/
 .idea/
 *.swp
 *.swo
+*.tmp
 
 # OS generated files
 .DS_Store

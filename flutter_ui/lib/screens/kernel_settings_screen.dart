@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/config.dart';
 import '../services/kernel_manager.dart';
+import '../services/kernel_downloader.dart';
 
 /// 内核管理设置页面
 class KernelSettingsScreen extends StatefulWidget {
@@ -182,6 +183,7 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
     final isSelected = manager.selectedKernelType == type;
     final releases = manager.releases[type];
     final latestVersion = releases?.isNotEmpty == true ? releases!.first.version : null;
+    final isDownloading = manager.isDownloading && manager.currentDownload != null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -217,16 +219,15 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
           children: [
             if (!info!.isDownloaded)
               ElevatedButton.icon(
-                icon: manager.isDownloading &&
-                        manager.currentDownload != null
+                icon: isDownloading
                     ? const SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.download, size: 18),
-                label: Text(manager.isDownloading ? '下载中...' : '下载'),
-                onPressed: manager.isDownloading
+                label: Text(isDownloading ? '下载中...' : '下载'),
+                onPressed: isDownloading
                     ? null
                     : () => _downloadKernel(manager, type),
               )
