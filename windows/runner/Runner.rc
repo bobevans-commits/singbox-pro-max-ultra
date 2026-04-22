@@ -1,0 +1,9 @@
+#include "resource.h"
+
+APP_ICON ICON "resources\\app_icon.ico"
+
+#if !defined(NDEBUG)
+1 24 "runner.exe.manifest"
+#else
+1 24 "runner.exe.manifest"
+#endif
