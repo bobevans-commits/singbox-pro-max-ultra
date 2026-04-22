@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:proxy_client/services/proxy_service.dart';
-import 'package:proxy_client/models/singbox_config.dart';
+import 'package:proxy_client_ui/services/proxy_service.dart';
+import 'package:proxy_client_ui/models/singbox_config.dart';
 
 void main() {
   group('ProxyService Tests', () {
