@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/proxy_service.dart';
 import '../models/singbox_config.dart';
+import '../widgets/proxy_link_importer.dart';
 import 'log_screen.dart';
 import 'node_editor_screen.dart';
 import 'routing_editor_screen.dart';
@@ -399,10 +400,46 @@ class NodesScreen extends StatelessWidget {
   }
 
   void _showAddNodeDialog(BuildContext context, ProxyService service) {
-    // Navigate to full node editor screen
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const NodeEditorScreen()),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: SingleChildScrollView(
+          child: ProxyLinkImporter(
+            onLinksParsed: (nodes) {
+              for (final node in nodes) {
+                final outbound = Outbound(
+                  type: node['type'],
+                  tag: node['tag'],
+                  server: node['server'],
+                  serverPort: node['serverPort'],
+                  uuid: node['uuid'],
+                  password: node['password'],
+                  flow: node['flow'],
+                  security: node['security'],
+                  tls: node['tls'] != null ? TlsConfig.fromJson(node['tls']) : null,
+                  reality: node['reality'] != null ? RealityConfig.fromJson(node['reality']) : null,
+                  transport: node['transport'] != null ? TransportConfig.fromJson(node['transport']) : null,
+                  upMbps: node['upMbps'],
+                  downMbps: node['downMbps'],
+                  obfsPassword: node['obfsPassword'],
+                  congestionControl: node['congestionControl'],
+                );
+                service.addOutbound(outbound);
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Imported ${nodes.length} node(s)')),
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 }
