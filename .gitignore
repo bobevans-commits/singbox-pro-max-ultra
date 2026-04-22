@@ -1,0 +1,64 @@
+```
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+build/
+dist/
+target/
+
+# Rust specific
+Cargo.lock
+**/*.rs.bk
+
+# Flutter specific
+**/pubspec.lock
+**/packages/
+**/build/
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+.env.*
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Python (if any Python files exist in project)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+
+# Compiled files
+*.exe
+*.dll
+*.so
+*.a
+*.o
+*.obj
+*.out
+```
