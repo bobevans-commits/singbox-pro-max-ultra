@@ -1,58 +1,64 @@
 //! mihomo (Clash.Meta) 内核适配器
+//! 
+//! 提供对 mihomo 代理内核的封装和管理。
 
-use crate::{Result, ProxyClientError};
-use tokio::process::{Command, Child};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use crate::{Result, ProxyClientError, kernels::ProcessManager};
+use tokio::process::Command;
+use std::path::Path;
 
-static MIHOMO_PROCESS: once_cell::sync::Lazy<Arc<Mutex<Option<Child>>>> = 
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+/// mihomo 进程管理器
+static MIHOMO_PROCESS: once_cell::sync::Lazy<ProcessManager> = 
+    once_cell::sync::Lazy::new(ProcessManager::new);
 
-/// mihomo 实现
+/// mihomo 内核实现
 pub struct Mihomo;
 
 #[async_trait::async_trait]
 impl super::Kernel for Mihomo {
+    const NAME: &'static str = "mihomo";
+    
     async fn start(config_path: &str) -> Result<()> {
-        let mut process_lock = MIHOMO_PROCESS.lock().await;
-        
-        if process_lock.is_some() {
+        // 检查是否已在运行
+        if MIHOMO_PROCESS.is_running().await {
             return Err(ProxyClientError::KernelError("mihomo 已经在运行".to_string()));
         }
         
         let mihomo_cmd = find_mihomo_binary()?;
         
-        let child = Command::new(mihomo_cmd)
+        // 验证配置文件是否存在
+        if !Path::new(config_path).exists() {
+            return Err(ProxyClientError::ConfigError(
+                format!("配置文件不存在：{}", config_path)
+            ));
+        }
+        
+        // 获取配置目录
+        let config_dir = Path::new(config_path)
+            .parent()
+            .unwrap_or(Path::new("."));
+        
+        // 构建命令
+        let command = Command::new(mihomo_cmd)
             .arg("-d")
-            .arg(std::path::Path::new(config_path).parent().unwrap_or(std::path::Path::new(".")))
+            .arg(config_dir)
             .arg("-f")
-            .arg(config_path)
-            .spawn()
-            .map_err(|e| ProxyClientError::KernelError(format!("启动 mihomo 失败：{}", e)))?;
+            .arg(config_path);
         
-        *process_lock = Some(child);
+        // 启动进程
+        MIHOMO_PROCESS.spawn(command).await?;
+        
         log::info!("mihomo 已启动，配置文件：{}", config_path);
-        
         Ok(())
     }
     
     async fn stop() -> Result<()> {
-        let mut process_lock = MIHOMO_PROCESS.lock().await;
-        
-        if let Some(mut child) = process_lock.take() {
-            #[cfg(unix)]
-            {
-                use nix::sys::signal::{kill, Signal};
-                use nix::unistd::Pid;
-                if let Ok(pid) = child.id().ok_or_else(|| ProxyClientError::KernelError("无法获取进程 ID".to_string())) {
-                    let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
-                }
-            }
-            
-            let _ = child.wait().await;
-            log::info!("mihomo 已停止");
+        if !MIHOMO_PROCESS.is_running().await {
+            log::warn!("mihomo 未在运行");
+            return Ok(());
         }
         
+        MIHOMO_PROCESS.terminate().await?;
+        log::info!("mihomo 已停止");
         Ok(())
     }
     
@@ -65,16 +71,22 @@ impl super::Kernel for Mihomo {
             .await
             .map_err(|e| ProxyClientError::KernelError(format!("获取版本失败：{}", e)))?;
         
+        if !output.status.success() {
+            return Err(ProxyClientError::KernelError(
+                "获取 mihomo 版本失败".to_string()
+            ));
+        }
+        
         let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(version)
     }
     
     async fn is_running() -> bool {
-        let process_lock = MIHOMO_PROCESS.lock().await;
-        process_lock.is_some()
+        MIHOMO_PROCESS.is_running().await
     }
 }
 
+/// 查找 mihomo 可执行文件
 fn find_mihomo_binary() -> Result<String> {
     #[cfg(windows)]
     {
@@ -86,7 +98,7 @@ fn find_mihomo_binary() -> Result<String> {
         ];
         
         for path in &paths {
-            if std::path::Path::new(path).exists() {
+            if Path::new(path).exists() {
                 return Ok(path.to_string());
             }
         }
@@ -103,7 +115,7 @@ fn find_mihomo_binary() -> Result<String> {
         ];
         
         for path in &paths {
-            if std::path::Path::new(path).exists() {
+            if Path::new(path).exists() {
                 return Ok(path.to_string());
             }
         }
@@ -127,5 +139,10 @@ mod tests {
     fn test_find_binary_returns_error_when_not_found() {
         let result = find_mihomo_binary();
         assert!(result.is_ok() || result.is_err());
+    }
+    
+    #[test]
+    fn test_kernel_name() {
+        assert_eq!(Mihomo::NAME, "mihomo");
     }
 }
