@@ -33,7 +33,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'windows')
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -80,7 +80,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'macos')
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -129,7 +129,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'linux')
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Install Dependencies
         run: |
@@ -197,7 +197,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'android')
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Setup Java
         uses: actions/setup-java@v4
