@@ -48,7 +48,7 @@ jobs:
       - name: Download sing-box
         shell: pwsh
         run: |
-          mkdir -p assets/bin
+          New-Item -ItemType Directory -Force -Path assets/bin
           $url = "https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-windows-amd64.zip"
           Invoke-WebRequest -Uri $url -OutFile "sing-box.zip"
           Expand-Archive -Path "sing-box.zip" -DestinationPath "assets/bin/" -Force
