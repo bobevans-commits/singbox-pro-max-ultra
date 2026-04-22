@@ -1,35 +1,37 @@
 ```
-# Flutter/Dart specific
+# Flutter/Dart
 .dart_tool/
+.build/
+.flutter-plugins
+.flutter-plugin-dependencies
 .packages
-flutter/ephemeral/
-
-# Build outputs
-/build/
-*.apk
-*.aab
-*.ipa
-*.app
-
-# Dependencies
 pubspec.lock
 
-# Environment variables
+# Build outputs
+build/
+*.apk
+*.aab
+*.app
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+*.tmp
+
+# Environment
 .env
 .env.local
 *.env.*
 
-# Logs
-*.log
-logs/
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS generated files
-.DS_Store
-Thumbs.db
+# Dependencies
+node_modules/
 ```
