@@ -1,32 +1,29 @@
 ```
-# Compiled and build artifacts
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
+# Dart/Flutter
+.dart_tool/
+.packages
+pubspec.lock
+build/
 
-# Dependencies
-target/
-**/target/
+# Compiled binaries
+universal-proxy-party/binaries/
 
-# Logs and temp files
-*.log
-*.tmp
-*.swp
-
-# Editors
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Coverage reports
-coverage/
-htmlcov/
-.coverage
+# Logs
+*.log
 
-# Rust-specific
-Cargo.lock
-**/Cargo.lock
+# Environment
+.env
+.env.local
+*.env.*
+
+# Temp files
+*.tmp
+.DS_Store
+Thumbs.db
 ```
