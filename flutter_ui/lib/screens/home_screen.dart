@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../services/proxy_service.dart';
 import '../models/singbox_config.dart';
 import 'log_screen.dart';
+import 'node_editor_screen.dart';
+import 'routing_editor_screen.dart';
 
 /// Main Home Screen with Dashboard, Nodes, Routing, DNS, and Settings tabs
 class HomeScreen extends StatefulWidget {
@@ -323,50 +325,84 @@ class NodesScreen extends StatelessWidget {
   void _showNodeDetails(BuildContext context, Outbound node) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) => Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(node.tag, style: Theme.of(context).textTheme.titleLarge),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(node.tag, style: Theme.of(context).textTheme.titleLarge),
+                IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => NodeEditorScreen(existingNode: node),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
-            Text('Type: ${node.type}'),
-            if (node.server != null) Text('Server: ${node.server}:${node.serverPort}'),
-            if (node.tls != null) Text('TLS: ${node.tls!.enabled ? "Enabled" : "Disabled"}'),
-            if (node.reality != null) Text('Reality: Enabled'),
+            _buildDetailRow('Type', node.type),
+            if (node.server != null) _buildDetailRow('Server', '${node.server}:${node.serverPort}'),
+            if (node.uuid != null) _buildDetailRow('UUID', node.uuid!),
+            if (node.password != null) _buildDetailRow('Password', '••••••••'),
+            if (node.tls != null) _buildDetailRow('TLS', node.tls!.enabled ? 'Enabled' : 'Disabled'),
+            if (node.tls?.serverName != null) _buildDetailRow('SNI', node.tls!.serverName!),
+            if (node.transport != null) _buildDetailRow('Transport', node.transport!.type),
+            if (node.reality != null) _buildDetailRow('Reality', 'Enabled'),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => NodeEditorScreen(existingNode: node),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.edit),
+                label: const Text('Edit Node'),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  void _showAddNodeDialog(BuildContext context, ProxyService service) {
-    // Simplified for demo - in real app would have full form
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Node'),
-        content: const Text('Select protocol and enter details'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              // Add a sample node
-              service.addOutbound(Outbound(
-                type: 'vmess',
-                tag: 'new-node-${DateTime.now().millisecondsSinceEpoch}',
-                server: 'example.com',
-                serverPort: 443,
-                uuid: 'xxxx-xxxx-xxxx',
-                tls: TlsConfig(enabled: true, serverName: 'example.com'),
-              ));
-              Navigator.pop(ctx);
-            },
-            child: const Text('Add VMess'),
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text('$label:', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
           ),
+          Expanded(child: Text(value)),
         ],
       ),
+    );
+  }
+
+  void _showAddNodeDialog(BuildContext context, ProxyService service) {
+    // Navigate to full node editor screen
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NodeEditorScreen()),
     );
   }
 }
@@ -382,49 +418,98 @@ class RoutingScreen extends StatelessWidget {
     final rules = service.currentConfig?.route.rules ?? [];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Routing Rules')),
-      body: ListView.builder(
-        itemCount: rules.length,
-        itemBuilder: (ctx, i) {
-          final rule = rules[i];
-          return Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: ListTile(
-              title: Text('Rule #${i + 1}'),
-              subtitle: Text('→ ${rule.outbound}'),
-              trailing: Chip(label: Text(rule.protocol ?? 'all')),
-            ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddRuleDialog(context, service),
-        child: const Icon(Icons.add_rule),
-      ),
-    );
-  }
-
-  void _showAddRuleDialog(BuildContext context, ProxyService service) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Routing Rule'),
-        content: const Text('Configure domain/IP based routing'),
+      appBar: AppBar(
+        title: const Text('Routing Rules'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              service.updateRoutingRules([
-                ...service.currentConfig!.route.rules,
-                RuleConfig(outbound: 'proxy', domainSuffix: ['.netflix.com']),
-              ]);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Add Netflix Rule'),
+          IconButton(
+            icon: const Icon(Icons.add_rule),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RoutingEditorScreen()),
+            ),
+            tooltip: 'Add Rule',
           ),
         ],
       ),
+      body: rules.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.route_outlined, size: 64, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text('No routing rules', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text('Add rules to control traffic routing', style: TextStyle(color: Colors.grey[600])),
+                ],
+              ),
+            )
+          : ListView.builder(
+              itemCount: rules.length,
+              itemBuilder: (ctx, i) {
+                final rule = rules[i];
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: ListTile(
+                    leading: _getRuleIcon(rule),
+                    title: Text(_getRuleDescription(rule)),
+                    subtitle: Text('→ ${rule.outbound}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Chip(
+                          label: Text(rule.protocol ?? rule.ipCidr != null ? 'IP' : rule.domainSuffix != null ? 'Domain' : 'All'),
+                          padding: EdgeInsets.zero,
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.edit, size: 20),
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => RoutingEditorScreen(existingRule: rule)),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          onPressed: () => _deleteRule(context, service, i),
+                        ),
+                      ],
+                    ),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => RoutingEditorScreen(existingRule: rule)),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
+  }
+
+  Widget _getRuleIcon(RuleConfig rule) {
+    if (rule.protocol != null) return const Icon(Icons.protocol, color: Colors.blue);
+    if (rule.ipCidr != null) return const Icon(Icons.ip, color: Colors.green);
+    if (rule.domainSuffix != null) return const Icon(Icons.link, color: Colors.orange);
+    if (rule.domain != null) return const Icon(Icons.dns, color: Colors.purple);
+    return const Icon(Icons.rule, color: Colors.grey);
+  }
+
+  String _getRuleDescription(RuleConfig rule) {
+    if (rule.protocol != null) return 'Protocol: ${rule.protocol}';
+    if (rule.ipCidr != null) return 'IP: ${rule.ipCidr!.join(', ')}';
+    if (rule.domainSuffix != null) return 'Domain Suffix: ${rule.domainSuffix!.join(', ')}';
+    if (rule.domain != null) return 'Domain: ${rule.domain!.join(', ')}';
+    return 'Custom Rule';
+  }
+
+  void _deleteRule(BuildContext context, ProxyService service, int index) {
+    final currentRules = List<RuleConfig>.from(service.currentConfig?.route.rules ?? []);
+    if (index >= 0 && index < currentRules.length) {
+      currentRules.removeAt(index);
+      service.updateRoutingRules(currentRules);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rule deleted')));
+    }
   }
 }
 
