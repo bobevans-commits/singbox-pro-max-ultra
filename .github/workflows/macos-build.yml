@@ -1,0 +1,175 @@
+name: macOS Build
+
+on:
+  push:
+    branches: [main, dev, develop]
+    tags: ['v*']
+    paths:
+      - 'lib/**'
+      - 'macos/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/macos-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'macos/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/macos-build.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: false
+        default: 'dev'
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+  APP_NAME: 'ProxyClient'
+  SINGBOX_VERSION: '1.10.0'
+
+jobs:
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Enable macOS desktop support
+        run: flutter config --enable-macos-desktop
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Download sing-box (universal binary)
+        run: |
+          mkdir -p assets/bin
+
+          # x86_64
+          curl -L https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-darwin-amd64.tar.gz -o sing-box-amd64.tar.gz
+          tar -xzf sing-box-amd64.tar.gz
+          mv sing-box-*/sing-box assets/bin/sing-box-x86_64
+          rm -rf sing-box-* sing-box-amd64.tar.gz
+
+          # arm64
+          curl -L https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-darwin-arm64.tar.gz -o sing-box-arm64.tar.gz
+          tar -xzf sing-box-arm64.tar.gz
+          mv sing-box-*/sing-box assets/bin/sing-box-arm64
+          rm -rf sing-box-* sing-box-arm64.tar.gz
+
+          chmod +x assets/bin/sing-box-x86_64 assets/bin/sing-box-arm64
+          ls -la assets/bin/
+
+      - name: Run Flutter tests
+        run: flutter test
+        continue-on-error: true
+
+      - name: Build Flutter macOS App (Release)
+        run: flutter build macos --release --dart-define=version=${{ github.event.inputs.version || 'dev' }}
+
+      - name: Prepare distribution package
+        run: |
+          mkdir dist
+          cp -R build/macos/Build/Products/Release/${{ env.APP_NAME }}.app dist/
+
+          # Embed sing-box binaries
+          cp assets/bin/sing-box-x86_64 dist/${{ env.APP_NAME }}.app/Contents/MacOS/sing-box-x86_64
+          cp assets/bin/sing-box-arm64 dist/${{ env.APP_NAME }}.app/Contents/MacOS/sing-box-arm64
+
+          # Create universal sing-box launcher script
+          cat > dist/${{ env.APP_NAME }}.app/Contents/MacOS/sing-box <<'EOF'
+          #!/bin/bash
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "arm64" ]; then
+            exec "$DIR/sing-box-arm64" "$@"
+          else
+            exec "$DIR/sing-box-x86_64" "$@"
+          fi
+          EOF
+          chmod +x dist/${{ env.APP_NAME }}.app/Contents/MacOS/sing-box
+
+          ls -laR dist/
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ github.event.inputs.version || 'dev' }}"
+          DMG_NAME="${{ env.APP_NAME }}-macos-universal-${VERSION}.dmg"
+
+          hdiutil create \
+            -volname "${{ env.APP_NAME }}" \
+            -srcfolder dist \
+            -ov \
+            -format UDZO \
+            "$DMG_NAME"
+
+          echo "DMG_NAME=$DMG_NAME" >> $GITHUB_ENV
+          ls -la *.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-${{ github.run_number }}
+          path: ${{ env.DMG_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create Release (if tagged)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.DMG_NAME }}
+          draft: false
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+          generate_release_notes: true
+          body: |
+            ## Installation
+            1. Download and open the DMG file
+            2. Drag ${{ env.APP_NAME }} to Applications folder
+            3. On first launch, right-click and select Open (to bypass Gatekeeper)
+
+            ## Notes
+            - Universal binary: supports both Intel (x86_64) and Apple Silicon (arm64)
+            - sing-box core is included for both architectures
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos-debug:
+    name: Build macOS Debug
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch'
+    needs: build-macos
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build macOS Debug
+        run: flutter build macos --debug
+
+      - name: Upload debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-debug-build-${{ github.run_number }}
+          path: build/macos/Build/Products/Debug/${{ env.APP_NAME }}.app
+          retention-days: 7

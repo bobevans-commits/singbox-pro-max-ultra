@@ -525,7 +525,7 @@ class RoutingScreen extends StatelessWidget {
   }
 
   Widget _getRuleIcon(RuleConfig rule) {
-    if (rule.protocol != null) return const Icon(Icons.protocol, color: Colors.blue);
+    if (rule.protocol != null) return const Icon(Icons.settings_ethernet, color: Colors.blue);
     if (rule.ipCidr != null) return const Icon(Icons.ip, color: Colors.green);
     if (rule.domainSuffix != null) return const Icon(Icons.link, color: Colors.orange);
     if (rule.domain != null) return const Icon(Icons.dns, color: Colors.purple);

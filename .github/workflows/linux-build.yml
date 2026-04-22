@@ -1,0 +1,274 @@
+name: Linux Build
+
+on:
+  push:
+    branches: [main, dev, develop]
+    tags: ['v*']
+    paths:
+      - 'lib/**'
+      - 'linux/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/linux-build.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'linux/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/linux-build.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: false
+        default: 'dev'
+      build_format:
+        description: 'Build format (appimage or deb or tar.gz)'
+        required: false
+        default: 'appimage'
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+  APP_NAME: 'ProxyClient'
+  SINGBOX_VERSION: '1.10.0'
+
+jobs:
+  build-linux:
+    name: Build Linux (${{ github.event.inputs.build_format || 'appimage' }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Linux desktop support
+        run: flutter config --enable-linux-desktop
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Download sing-box
+        run: |
+          mkdir -p assets/bin
+          curl -L https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-linux-amd64.tar.gz -o sing-box.tar.gz
+          tar -xzf sing-box.tar.gz
+          mv sing-box-*/sing-box assets/bin/sing-box
+          chmod +x assets/bin/sing-box
+          rm -rf sing-box-* sing-box.tar.gz
+          ls -la assets/bin/
+
+      - name: Run Flutter tests
+        run: flutter test
+        continue-on-error: true
+
+      - name: Build Flutter Linux App (Release)
+        run: flutter build linux --release --dart-define=version=${{ github.event.inputs.version || 'dev' }}
+
+      - name: Prepare distribution
+        run: |
+          mkdir dist
+          cp -r build/linux/x64/release/bundle/* dist/
+          cp assets/bin/sing-box dist/
+          chmod +x dist/proxy_client dist/sing-box
+          ls -laR dist/
+
+      - name: Build AppImage
+        if: github.event.inputs.build_format == 'appimage' || github.event.inputs.build_format == '' || github.event_name != 'workflow_dispatch'
+        run: |
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          cp -r dist/* AppDir/usr/bin/
+
+          # Copy icon if exists
+          if [ -f assets/icons/icon.png ]; then
+            cp assets/icons/icon.png AppDir/AppIcon.png
+          fi
+
+          # Create desktop entry
+          cat > AppDir/${{ env.APP_NAME }}.desktop << 'DESKTOP_EOF'
+          [Desktop Entry]
+          Name=ProxyClient
+          Exec=proxy_client
+          Icon=AppIcon
+          Type=Application
+          Categories=Network;Utility;
+          Comment=Multi-platform proxy client
+          Terminal=false
+          DESKTOP_EOF
+
+          # Build AppImage
+          ./appimagetool-x86_64.AppImage AppDir
+          VERSION="${{ github.event.inputs.version || 'dev' }}"
+          mv *.AppImage ${{ env.APP_NAME }}-linux-x86_64-${VERSION}.AppImage
+          echo "ARTIFACT_NAME=${{ env.APP_NAME }}-linux-x86_64-${VERSION}.AppImage" >> $GITHUB_ENV
+          echo "ARTIFACT_TYPE=AppImage" >> $GITHUB_ENV
+
+      - name: Build DEB package
+        if: github.event.inputs.build_format == 'deb'
+        run: |
+          VERSION="${{ github.event.inputs.version || 'dev' }}"
+          # Clean version for deb
+          DEB_VERSION=$(echo "$VERSION" | sed 's/^v//')
+
+          mkdir -p deb-pkg/DEBIAN
+          mkdir -p deb-pkg/usr/bin
+          mkdir -p deb-pkg/usr/share/applications
+          mkdir -p deb-pkg/usr/share/icons/hicolor/256x256/apps
+
+          cp -r dist/* deb-pkg/usr/bin/
+
+          cat > deb-pkg/DEBIAN/control << EOF
+          Package: proxy-client
+          Version: ${DEB_VERSION}
+          Architecture: amd64
+          Maintainer: Proxy Client Team
+          Description: Multi-platform proxy client
+           Proxy Client is a multi-core proxy client supporting
+           sing-box, mihomo, and v2ray cores.
+          Depends: libgtk-3-0, libayatana-appindicator3-1
+          Section: net
+          Priority: optional
+          EOF
+
+          cat > deb-pkg/usr/share/applications/${{ env.APP_NAME }}.desktop << 'DESKTOP_EOF'
+          [Desktop Entry]
+          Name=ProxyClient
+          Exec=/usr/bin/proxy_client
+          Type=Application
+          Categories=Network;Utility;
+          Comment=Multi-platform proxy client
+          Terminal=false
+          DESKTOP_EOF
+
+          if [ -f assets/icons/icon.png ]; then
+            cp assets/icons/icon.png deb-pkg/usr/share/icons/hicolor/256x256/apps/proxy-client.png
+          fi
+
+          dpkg-deb --build deb-pkg ${{ env.APP_NAME }}-linux-amd64-${VERSION}.deb
+          echo "ARTIFACT_NAME=${{ env.APP_NAME }}-linux-amd64-${VERSION}.deb" >> $GITHUB_ENV
+          echo "ARTIFACT_TYPE=DEB" >> $GITHUB_ENV
+
+      - name: Build tar.gz
+        if: github.event.inputs.build_format == 'tar.gz'
+        run: |
+          VERSION="${{ github.event.inputs.version || 'dev' }}"
+          tar -czf ${{ env.APP_NAME }}-linux-x86_64-${VERSION}.tar.gz -C dist .
+          echo "ARTIFACT_NAME=${{ env.APP_NAME }}-linux-x86_64-${VERSION}.tar.gz" >> $GITHUB_ENV
+          echo "ARTIFACT_TYPE=tar.gz" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build-${{ github.run_number }}
+          path: ${{ env.ARTIFACT_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create Release (if tagged)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARTIFACT_NAME }}
+          draft: false
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ### AppImage
+            1. Download the .AppImage file
+            2. `chmod +x ProxyClient-linux-x86_64-*.AppImage`
+            3. `./ProxyClient-linux-x86_64-*.AppImage`
+
+            ### DEB
+            1. Download the .deb file
+            2. `sudo dpkg -i ProxyClient-linux-amd64-*.deb`
+
+            ### tar.gz
+            1. Download and extract: `tar -xzf ProxyClient-linux-x86_64-*.tar.gz`
+            2. Run: `./proxy_client`
+
+            ## Notes
+            - Requires GTK3 and related libraries
+            - sing-box core is included
+            - For TUN mode, run with `sudo`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux-arm64:
+    name: Build Linux ARM64 (tar.gz)
+    runs-on: ubuntu-22.04-arm
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev \
+            libayatana-appindicator3-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Download sing-box ARM64
+        run: |
+          mkdir -p assets/bin
+          curl -L https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-linux-arm64.tar.gz -o sing-box.tar.gz
+          tar -xzf sing-box.tar.gz
+          mv sing-box-*/sing-box assets/bin/sing-box
+          chmod +x assets/bin/sing-box
+          rm -rf sing-box-* sing-box.tar.gz
+
+      - name: Build Flutter Linux ARM64
+        run: flutter build linux --release
+
+      - name: Package
+        run: |
+          mkdir dist
+          cp -r build/linux/arm64/release/bundle/* dist/
+          cp assets/bin/sing-box dist/
+          chmod +x dist/proxy_client dist/sing-box
+
+          VERSION="${{ github.event.inputs.version || 'dev' }}"
+          tar -czf ${{ env.APP_NAME }}-linux-arm64-${VERSION}.tar.gz -C dist .
+
+      - name: Upload ARM64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-build-${{ github.run_number }}
+          path: ${{ env.APP_NAME }}-linux-arm64-*.tar.gz
+          retention-days: 30
