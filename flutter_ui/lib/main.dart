@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/subscriptions_screen.dart';
+import 'screens/kernel_settings_screen.dart';
 import 'services/proxy_service.dart';
+import 'services/kernel_manager.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,6 +19,7 @@ class ProxyClientApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ProxyService()),
+        ChangeNotifierProvider(create: (_) => KernelManager()),
       ],
       child: MaterialApp(
         title: 'Proxy Client',
@@ -56,6 +59,7 @@ class _MainScreenState extends State<MainScreen> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const SubscriptionsScreen(),
+    const KernelSettingsScreen(),
   ];
 
   @override
@@ -71,6 +75,7 @@ class _MainScreenState extends State<MainScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.subscriptions), label: 'Subscriptions'),
+          NavigationDestination(icon: Icon(Icons.dns), label: 'Kernel'),
         ],
       ),
     );
