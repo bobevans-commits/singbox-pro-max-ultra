@@ -42,19 +42,83 @@ class ProxyService : android.app.Service() {
     }
 
     private fun startProxy(configPath: String, kernelType: String) {
-        // TODO: 实现实际的代理启动逻辑
-        // 1. 加载对应内核的二进制文件
-        // 2. 生成配置文件
-        // 3. 启动进程
-        // 4. 监听端口并设置系统代理
-        
-        println("Starting proxy service:")
-        println("  Config: $configPath")
-        println("  Kernel: $kernelType")
-        
-        // 模拟运行
-        while (!Thread.interrupted()) {
-            Thread.sleep(1000)
+        try {
+            // 获取应用内部存储目录
+            val filesDir = applicationContext.filesDir
+            val kernelDir = File(filesDir, "kernels")
+            
+            // 确定内核二进制文件路径
+            val kernelPath = File(kernelDir, getKernelBinaryName(kernelType))
+            
+            if (!kernelPath.exists()) {
+                throw IllegalStateException("Kernel binary not found: ${kernelPath.absolutePath}")
+            }
+            
+            // 使内核文件可执行
+            kernelPath.setExecutable(true)
+            
+            // 读取配置文件
+            val configFile = File(configPath)
+            if (!configFile.exists()) {
+                throw IllegalStateException("Config file not found: $configPath")
+            }
+            
+            // 构建命令参数
+            val cmd = when (kernelType) {
+                "sing-box" -> arrayOf(
+                    kernelPath.absolutePath,
+                    "run",
+                    "-c", configFile.absolutePath
+                )
+                "mihomo" -> arrayOf(
+                    kernelPath.absolutePath,
+                    "-d", filesDir.absolutePath,
+                    "-f", configFile.absolutePath
+                )
+                "v2ray" -> arrayOf(
+                    kernelPath.absolutePath,
+                    "-config", configFile.absolutePath
+                )
+                else -> throw IllegalArgumentException("Unknown kernel: $kernelType")
+            }
+            
+            // 使用 ProcessBuilder 启动内核进程
+            val processBuilder = ProcessBuilder(*cmd)
+            processBuilder.environment()["PROXY_APP_DIR"] = filesDir.absolutePath
+            processBuilder.redirectErrorStream(true)
+            
+            // 启动进程
+            val process = processBuilder.start()
+            
+            println("Proxy process started: ${kernelPath.name} (PID: ${process.pid()})")
+            
+            // 读取日志输出
+            Thread {
+                process.inputStream.bufferedReader().use { reader ->
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        println("[${kernelType}] $line")
+                        // TODO: 将日志发送到 Flutter 层
+                    }
+                }
+            }.start()
+            
+            // 等待进程结束
+            val exitCode = process.waitFor()
+            println("Proxy process exited with code: $exitCode")
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
+            throw e
+        }
+    }
+    
+    private fun getKernelBinaryName(kernelType: String): String {
+        return when (kernelType) {
+            "sing-box" -> "sing-box"
+            "mihomo" -> "mihomo"
+            "v2ray" -> "v2ray"
+            else -> kernelType
         }
     }
 
