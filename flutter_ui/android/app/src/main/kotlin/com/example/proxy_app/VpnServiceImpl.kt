@@ -76,18 +76,82 @@ class VpnServiceImpl : VpnService() {
 
         val fd = parcelFileDescriptor!!.fd
         
-        // TODO: 这里需要调用实际的内核库来启动数据转发
-        // 目前只是占位，实际需要：
-        // 1. 通过 JNI 调用 sing-box/mihomo/v2ray 的库
-        // 2. 传递文件描述符和配置
-        // 3. 启动数据转发循环
-        
-        println("VPN established with fd: $fd")
-        println("Config: ${config.take(100)}...")
-        
-        // 模拟运行
-        while (!Thread.interrupted()) {
-            Thread.sleep(1000)
+        // 启动外部内核进程（sing-box/mihomo/v2ray）
+        startKernelProcess(fd, config)
+    }
+
+    private fun startKernelProcess(fd: Int, config: String) {
+        try {
+            // 获取应用内部存储目录
+            val filesDir = applicationContext.filesDir
+            val kernelDir = File(filesDir, "kernels")
+            
+            // 确定要使用的内核（从配置或 SharedPreferences 读取）
+            val kernelName = getSelectedKernel() // sing-box, mihomo, 或 v2ray
+            val kernelPath = File(kernelDir, getKernelBinaryName(kernelName))
+            
+            if (!kernelPath.exists()) {
+                throw IllegalStateException("Kernel binary not found: ${kernelPath.absolutePath}")
+            }
+            
+            // 使内核文件可执行
+            kernelPath.setExecutable(true)
+            
+            // 写入配置文件到临时文件
+            val configFile = File(filesDir, "config.json")
+            configFile.writeText(config)
+            
+            // 构建命令参数
+            val cmd = when (kernelName) {
+                "sing-box" -> arrayOf(
+                    kernelPath.absolutePath,
+                    "run",
+                    "-c", configFile.absolutePath
+                )
+                "mihomo" -> arrayOf(
+                    kernelPath.absolutePath,
+                    "-d", filesDir.absolutePath,
+                    "-f", configFile.absolutePath
+                )
+                "v2ray" -> arrayOf(
+                    kernelPath.absolutePath,
+                    "-config", configFile.absolutePath
+                )
+                else -> throw IllegalArgumentException("Unknown kernel: $kernelName")
+            }
+            
+            // 使用 ProcessBuilder 启动内核进程，传递 TUN 文件描述符
+            val processBuilder = ProcessBuilder(*cmd)
+            processBuilder.environment()["PROXY_TUN_FD"] = fd.toString()
+            processBuilder.environment()["PROXY_APP_DIR"] = filesDir.absolutePath
+            
+            // 启动进程
+            val process = processBuilder.start()
+            
+            println("Kernel process started: ${kernelPath.name} (PID: ${process.pid()})")
+            println("TUN FD: $fd")
+            
+            // 等待进程结束
+            val exitCode = process.waitFor()
+            println("Kernel process exited with code: $exitCode")
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
+            throw e
+        }
+    }
+    
+    private fun getSelectedKernel(): String {
+        val prefs = getSharedPreferences("proxy_settings", MODE_PRIVATE)
+        return prefs.getString("selected_kernel", "sing-box") ?: "sing-box"
+    }
+    
+    private fun getKernelBinaryName(kernelName: String): String {
+        return when (kernelName) {
+            "sing-box" -> "sing-box"
+            "mihomo" -> "mihomo"
+            "v2ray" -> "v2ray"
+            else -> kernelName
         }
     }
 

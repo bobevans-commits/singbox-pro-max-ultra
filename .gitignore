@@ -1,57 +1,68 @@
 ```
-# Flutter/Dart
-.dart_tool/
-.packages
-.pub-cache/
-.pub/
-build/
-**/ios/.generated/
-**/android/.generated/
-
 # Dependencies
-node_modules/
-**/node_modules/
+target/
+
+# Rust build artifacts
+Cargo.lock
+target/
+**/*.rs.bk
+
+# Logs and temp files
+*.log
+*.tmp
 
 # Environment
 .env
 .env.local
-.env.*
+*.env.*
 
-# Logs
-*.log
-**/logs
+# Editors
+.vscode/
+.idea/
 
 # OS generated files
 .DS_Store
-**/.DS_Store
 Thumbs.db
-**/Thumbs.db
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
 
-# Compiled files
+# Python cache
+__pycache__/
 *.pyc
-*.class
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
+*.pyo
+*.pyd
 
 # Build outputs
 dist/
-target/
-.gradle/
-__pycache__/
-.mypy_cache/
-.pytest_cache/
-coverage/
-htmlcov/
-*.tmp
+build/
+*.so
+*.dylib
+*.dll
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
