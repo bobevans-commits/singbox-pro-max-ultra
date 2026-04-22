@@ -1,61 +1,57 @@
 ```
-# Build artifacts
-BUILD_SUMMARY.txt
-dist/
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
 build/
-*.o
-*.obj
-*.out
+**/ios/.generated/
+**/android/.generated/
 
 # Dependencies
 node_modules/
-.venv/
-venv/
-__pycache__/
-.mypy_cache/
-.pytest_cache/
-target/
-.gradle/
-
-# Logs and temp files
-*.log
-*.tmp
-*.swp
+**/node_modules/
 
 # Environment
 .env
 .env.local
-*.env.*
+.env.*
 
-# Editors
-.vscode/
-.idea/
+# Logs
+*.log
+**/logs
 
 # OS generated files
 .DS_Store
+**/.DS_Store
 Thumbs.db
+**/Thumbs.db
 
-# Compressed files
-*.zip
-*.gz
-*.tar
-*.tgz
-*.bz2
-*.xz
-*.7z
-*.rar
-*.zst
-*.lz4
-*.lzh
-*.cab
-*.arj
-*.rpm
-*.deb
-*.Z
-*.lz
-*.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Compiled files
+*.pyc
+*.class
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+
+# Build outputs
+dist/
+target/
+.gradle/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+coverage/
+htmlcov/
+*.tmp
 ```
