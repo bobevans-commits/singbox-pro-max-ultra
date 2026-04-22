@@ -1,40 +1,67 @@
 ```
-# Flutter/Dart specific
-.dart_tool/
-.build/
-.flutter-plugins
-.flutter-plugin-dependencies
-.packages
-**/ios/.generated/
-**/android/.generated/
-
 # Dependencies
 node_modules/
-**/node_modules/
+
+# Build artifacts
+build/
+dist/
+*.js
+*.exe
+*.dll
+*.so
+*.class
+*.pyc
+__pycache__/
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
 
 # Logs
 *.log
-**/*.log
 
-# Environment variables
-.env
-.env.local
-.env.*
-!.env.example
-
-# macOS
+# OS
 .DS_Store
-
-# Windows
 Thumbs.db
-ehthumbs.db
-Icon?
-desktop.ini
 
-# Linux
-*~
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+coverage/
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.tox/
+.eggs/
+*.egg-info/
+.venv/
+venv/
+.ENV/
 
-# Temporary folders
-tmp/
-temp/
+# Dart/Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+*.g.dart
+*.freezed.dart
+
+# PowerShell
+*.ps1~
+*.psd1~
+*.psm1~
 ```

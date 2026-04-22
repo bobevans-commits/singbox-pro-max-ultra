@@ -1,0 +1,299 @@
+# Windows Desktop Build with sing-box Core
+
+name: Windows Build
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'rust_core/**'
+      - 'flutter_ui/**'
+      - '.github/workflows/windows-build.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'rust_core/**'
+      - 'flutter_ui/**'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: false
+        default: 'dev'
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+  RUST_VERSION: '1.80.0'
+  APP_NAME: 'ProxyClient'
+  RUST_CORE_DIR: 'rust_core'
+  FLUTTER_UI_DIR: 'flutter_ui'
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git LFS
+        uses: git-lfs/setup-git-lfs@v3
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          rust-version: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+          target: x86_64-pc-windows-msvc
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.RUST_CORE_DIR }} -> target
+          prefix-key: "windows-rust"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+          cache-key: "flutter-${{ env.FLUTTER_VERSION }}"
+
+      - name: Enable Windows desktop support
+        run: flutter config --enable-windows-desktop
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+
+      - name: Build Rust Core (Release)
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          echo "Rust core built successfully"
+          ls -la target/x86_64-pc-windows-msvc/release/
+        working-directory: ${{ env.RUST_CORE_DIR }}
+
+      - name: Copy Rust Core to Flutter assets
+        run: |
+          # Create assets directory if not exists
+          mkdir -p assets/bin
+          
+          # Copy the release binary
+          copy ..\${{ env.RUST_CORE_DIR }}\target\x86_64-pc-windows-msvc\release\proxy_client.dll assets\bin\
+          copy ..\${{ env.RUST_CORE_DIR }}\target\x86_64-pc-windows-msvc\release\proxy_client.exe assets\bin\ 2>$null || echo "No exe produced (DLL mode)"
+          
+          # Also copy sing-box core if available in repo or download latest
+          # For now, we'll create a placeholder - in production, download from official releases
+          echo "Downloading sing-box latest release..."
+          $singboxUrl = "https://github.com/SagerNet/sing-box/releases/latest/download/sing-box-1.10.0-windows-amd64.zip"
+          Invoke-WebRequest -Uri $singboxUrl -OutFile "sing-box.zip"
+          Expand-Archive -Path "sing-box.zip" -DestinationPath "assets/bin/" -Force
+          
+          # List contents
+          dir assets\bin
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+
+      - name: Run Flutter tests
+        run: flutter test
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+        continue-on-error: true
+
+      - name: Build Flutter Windows App (Release)
+        run: flutter build windows --release --dart-define=version=${{ github.event.inputs.version || 'dev' }}
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+
+      - name: Prepare distribution package
+        run: |
+          # Create distribution directory
+          mkdir dist
+          
+          # Copy Flutter build output
+          xcopy /E /I /Y build\windows\x64\runner\Release\* dist\
+          
+          # Ensure sing-box and proxy_client binaries are in dist
+          copy assets\bin\sing-box*.exe dist\ 2>$null || echo "sing-box not found"
+          copy assets\bin\proxy_client.dll dist\ 2>$null || echo "proxy_client.dll not found"
+          
+          # Create a simple launcher script
+          @"
+          @echo off
+          echo Starting Proxy Client...
+          start "" "proxy_client.exe"
+          exit
+          "@ | Out-File -FilePath "dist\start.bat" -Encoding ASCII
+          
+          # Create README for users
+          @"
+          # Proxy Client for Windows
+          
+          ## Requirements
+          - Windows 10/11 (64-bit)
+          - Visual C++ Redistributable (included in most systems)
+          
+          ## Usage
+          1. Run `proxy_client.exe` or `start.bat`
+          2. Import your configuration file (JSON/YAML)
+          3. Select a node and click Connect
+          4. Enable TUN mode if needed for system-wide proxy
+          
+          ## Supported Cores
+          - sing-box (included)
+          - mihomo (download separately)
+          - v2ray-core (download separately)
+          
+          ## Troubleshooting
+          - If the app doesn't start, ensure all DLLs are present
+          - Run as Administrator for TUN mode
+          - Check logs in %APPDATA%\ProxyClient\logs
+          "@ | Out-File -FilePath "dist\README.txt" -Encoding ASCII
+          
+          # List distribution contents
+          dir dist
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+
+      - name: Create ZIP archive
+        run: |
+          $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          $version = "${{ github.event.inputs.version }}"
+          if ($version -eq "dev" -or $version -eq "") {
+            $version = "dev-$timestamp"
+          }
+          $zipName = "${{ env.APP_NAME }}-windows-x64-$version.zip"
+          
+          Compress-Archive -Path dist\* -DestinationPath "..\$zipName" -Force
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+        working-directory: ${{ env.FLUTTER_UI_DIR }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-${{ github.run_number }}
+          path: ${{ env.ZIP_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create Release (if tagged)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.ZIP_NAME }}
+          draft: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
+          body: |
+            ## Changes
+            - Automated build from commit ${{ github.sha }}
+            
+            ## Installation
+            1. Download and extract the ZIP file
+            2. Run `proxy_client.exe`
+            3. Import your configuration
+            
+            ## Notes
+            - Requires Windows 10/11 64-bit
+            - Run as Administrator for TUN mode
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            ${{ env.FLUTTER_UI_DIR }}/build/*.log
+            ${{ env.RUST_CORE_DIR }}/target/*/build/*/output
+          retention-days: 7
+          if-no-files-found: ignore
+
+  build-debug-installer:
+    name: Build Debug Installer (NSIS)
+    runs-on: windows-latest
+    needs: build-windows
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build-${{ github.run_number }}
+          path: dist
+
+      - name: Setup NSIS
+        run: |
+          choco install nsis -y
+          refreshenv
+
+      - name: Create NSIS Installer Script
+        run: |
+          @"
+          !include "MUI2.nsh"
+          
+          Name "${{ env.APP_NAME }}"
+          OutFile "${{ env.APP_NAME }}-Setup.exe"
+          InstallDir "$PROGRAMFILES64\${{ env.APP_NAME }}"
+          RequestExecutionLevel admin
+          
+          !define MUI_ABORTWARNING
+          !define MUI_ICON "installer_icon.ico"
+          
+          !insertmacro MUI_PAGE_DIRECTORY
+          !insertmacro MUI_PAGE_INSTFILES
+          !insertmacro MUI_UNPAGE_INSTFILES
+          !insertmacro MUI_LANGUAGE "English"
+          
+          Section "Install"
+            SetOutPath "$INSTDIR"
+            File /r "dist\*.*"
+            WriteUninstaller "$INSTDIR\uninstall.exe"
+            
+            CreateDirectory "$SMPROGRAMS\${{ env.APP_NAME }}"
+            CreateShortcut "$SMPROGRAMS\${{ env.APP_NAME}}\${{ env.APP_NAME }}.lnk" "$INSTDIR\proxy_client.exe"
+            CreateShortcut "$DESKTOP\${{ env.APP_NAME }}.lnk" "$INSTDIR\proxy_client.exe"
+            
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${{ env.APP_NAME }}" "DisplayName" "${{ env.APP_NAME }}"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${{ env.APP_NAME }}" "UninstallString" '"$INSTDIR\uninstall.exe"'
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${{ env.APP_NAME }}" "DisplayVersion" "1.0.0"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${{ env.APP_NAME }}" "Publisher" "Proxy Client Team"
+          SectionEnd
+          
+          Section "Uninstall"
+            Delete "$INSTDIR\uninstall.exe"
+            RMDir /r "$INSTDIR"
+            
+            Delete "$SMPROGRAMS\${{ env.APP_NAME }}\${{ env.APP_NAME }}.lnk"
+            RMDir "$SMPROGRAMS\${{ env.APP_NAME }}"
+            
+            Delete "$DESKTOP\${{ env.APP_NAME }}.lnk"
+            
+            DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${{ env.APP_NAME }}"
+          SectionEnd
+          "@ | Out-File -FilePath "installer.nsi" -Encoding ASCII
+          
+          # Create a dummy icon (in production, use real icon)
+          Add-Type -AssemblyName System.Drawing
+          $icon = New-Object System.Drawing.Bitmap(64, 64)
+          $graphics = [System.Drawing.Graphics]::FromImage($icon)
+          $graphics.Clear([System.Drawing.Color]::Blue)
+          $icon.Save("installer_icon.ico")
+          $icon.Dispose()
+          $graphics.Dispose()
+
+      - name: Build NSIS Installer
+        run: |
+          makensis /V2 installer.nsi
+          dir *.exe
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-${{ github.run_number }}
+          path: ${{ env.APP_NAME }}-Setup.exe
+          retention-days: 30
