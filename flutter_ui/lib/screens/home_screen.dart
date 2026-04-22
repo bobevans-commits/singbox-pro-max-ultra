@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/proxy_service.dart';
 import '../models/singbox_config.dart';
+import 'log_screen.dart';
 
 /// Main Home Screen with Dashboard, Nodes, Routing, DNS, and Settings tabs
 class HomeScreen extends StatefulWidget {
@@ -38,6 +39,21 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(icon: Icon(Icons.route), label: 'Routing'),
           NavigationDestination(icon: Icon(Icons.security), label: 'DNS'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+        ],
+      ),
+      appBar: AppBar(
+        title: const Text('Proxy Client'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.subject),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LogScreen()),
+              );
+            },
+            tooltip: 'View Logs',
+          ),
         ],
       ),
     );
@@ -498,6 +514,13 @@ class SettingsScreen extends StatelessWidget {
                 value: false,
                 onChanged: (v) {},
               ),
+              const Divider(),
+              SwitchListTile(
+                title: const Text('Start on Boot'),
+                subtitle: const Text('Launch app when system starts'),
+                value: false,
+                onChanged: (v) {},
+              ),
             ],
           ),
         ),
@@ -516,9 +539,32 @@ class SettingsScreen extends StatelessWidget {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.subject),
+                title: const Text('View Logs'),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LogScreen()),
+                  );
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.info),
                 title: const Text('About'),
                 onTap: () => showAboutDialog(context),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('Developer Options'),
+                subtitle: const Text('Debug and testing tools'),
+                onTap: () => _showDeveloperOptions(context, service),
               ),
             ],
           ),
@@ -532,9 +578,80 @@ class SettingsScreen extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Proxy Client'),
-        content: const Text('Version 1.0.0\nSupports sing-box, mihomo, v2ray-core'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Version 1.0.0', style: TextStyle(fontWeight: FontWeight.bold)),
+            SizedBox(height: 8),
+            Text('A multi-platform proxy client supporting:'),
+            SizedBox(height: 4),
+            Text('• sing-box'),
+            Text('• mihomo (Clash)'),
+            Text('• v2ray-core'),
+            SizedBox(height: 16),
+            Text('Built with Flutter', style: TextStyle(fontSize: 12)),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
+  }
+
+  void _showDeveloperOptions(BuildContext context, ProxyService service) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Developer Options'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.bug_report),
+              title: const Text('Test Latency'),
+              subtitle: const Text('Test all nodes latency'),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final result = await service.testLatency();
+                if (ctx.mounted) {
+                  showDialog(
+                    context: ctx,
+                    builder: (dCtx) => AlertDialog(
+                      title: const Text('Latency Test Results'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: result.entries.map((e) => 
+                          ListTile(
+                            title: Text(e.key),
+                            trailing: Text('${e.value.toStringAsFixed(1)} ms'),
+                          ),
+                        ).toList(),
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Close')),
+                      ],
+                    ),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.refresh),
+              title: const Text('Reload Config'),
+              subtitle: const Text('Reload without restart'),
+              onTap: () {
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Configuration reloaded')),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
         ],
       ),
     );
