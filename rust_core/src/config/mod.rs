@@ -1,58 +1,93 @@
 //! 配置管理模块
+//! 
+//! 提供代理配置的加载、保存和验证功能。
 
 use serde::{Deserialize, Serialize};
 use crate::{ProxyClientError, Result};
 use std::path::Path;
 use std::fs;
 
-/// 代理配置结构
+/// 代理配置结构体
+/// 
+/// 包含内核类型、日志级别、入站/出站配置、DNS 设置和路由规则等。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyConfig {
+    /// 内核类型 (sing-box, mihomo, v2ray)
     pub kernel_type: String,
+    /// 日志级别 (debug, info, warn, error)
     pub log_level: String,
+    /// 入站配置
     pub inbound: InboundConfig,
+    /// 出站配置
     pub outbound: OutboundConfig,
+    /// DNS 配置
     pub dns: DnsConfig,
+    /// 路由规则列表
     pub rules: Vec<RuleConfig>,
 }
 
+/// 入站配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InboundConfig {
+    /// 主端口
     pub port: u16,
+    /// SOCKS5 代理端口
     pub socks_port: Option<u16>,
+    /// HTTP 代理端口
     pub http_port: Option<u16>,
+    /// 混合端口 (同时支持 SOCKS 和 HTTP)
     pub mixed_port: Option<u16>,
 }
 
+/// 出站配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundConfig {
+    /// 节点列表
     pub nodes: Vec<NodeConfig>,
+    /// 默认节点名称
     pub default_node: Option<String>,
 }
 
+/// 节点配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeConfig {
+    /// 节点名称
     pub name: String,
+    /// 节点类型 (vmess, trojan, shadowsocks 等)
     pub r#type: String,
+    /// 服务器地址
     pub server: String,
+    /// 服务器端口
     pub port: u16,
+    /// UUID (用于 VMess/VLESS)
     pub uuid: Option<String>,
+    /// Alter ID (用于旧版 VMess)
     pub alter_id: Option<u16>,
+    /// 加密方式
     pub cipher: Option<String>,
+    /// 密码 (用于 Trojan/Shadowsocks)
     pub password: Option<String>,
+    /// 加密方法 (用于 Shadowsocks)
     pub method: Option<String>,
 }
 
+/// DNS 配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsConfig {
+    /// DNS 服务器列表
     pub servers: Vec<String>,
+    /// IP 策略 (ipv4_only, ipv6_only, prefer_ipv4 等)
     pub strategy: String,
 }
 
+/// 路由规则配置结构体
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleConfig {
+    /// 域名匹配规则
     pub domain: Option<Vec<String>>,
+    /// IP CIDR 匹配规则
     pub ip_cidr: Option<Vec<String>>,
+    /// 匹配的出站标识
     pub outbound: String,
 }
 
