@@ -1,32 +1,35 @@
 ```
-# Compiled and build artifacts
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
+# Flutter/Dart specific
+.dart_tool/
+.packages
+flutter/ephemeral/
+
+# Build outputs
+/build/
+*.apk
+*.aab
+*.ipa
+*.app
 
 # Dependencies
-target/
-**/target/
+pubspec.lock
 
-# Logs and temp files
+# Environment variables
+.env
+.env.local
+*.env.*
+
+# Logs
 *.log
-*.tmp
-*.swp
+logs/
 
-# Editors
+# IDE files
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Coverage reports
-coverage/
-htmlcov/
-.coverage
-
-# Rust-specific
-Cargo.lock
-**/Cargo.lock
+# OS generated files
+.DS_Store
+Thumbs.db
 ```
