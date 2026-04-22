@@ -1,136 +1,329 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import '../models/config.dart';
+import '../models/singbox_config.dart';
 
-/// 代理服务 - 管理内核生命周期和配置
+enum ProxyStatus { idle, starting, running, stopping, error }
+
 class ProxyService extends ChangeNotifier {
-  KernelStatus _status = KernelStatus.stopped;
-  KernelType _currentKernel = KernelType.singBox;
-  ProxyConfig? _config;
+  ProxyStatus _status = ProxyStatus.idle;
+  SingBoxConfig? _currentConfig;
   String? _errorMessage;
-  double _uploadSpeed = 0.0;
-  double _downloadSpeed = 0.0;
-
-  KernelStatus get status => _status;
-  KernelType get currentKernel => _currentKernel;
-  ProxyConfig? get config => _config;
+  int _trafficUp = 0;
+  int _trafficDown = 0;
+  double _latency = 0;
+  String _selectedOutbound = 'direct';
+  
+  // Getters
+  ProxyStatus get status => _status;
+  SingBoxConfig? get currentConfig => _currentConfig;
   String? get errorMessage => _errorMessage;
-  double get uploadSpeed => _uploadSpeed;
-  double get downloadSpeed => _downloadSpeed;
-  bool get isRunning => _status == KernelStatus.running;
+  int get trafficUp => _trafficUp;
+  int get trafficDown => _trafficDown;
+  double get latency => _latency;
+  String get selectedOutbound => _selectedOutbound;
+  bool get isRunning => _status == ProxyStatus.running;
+  bool get isTunEnabled => _currentConfig?.experimental.tun?.enabled ?? false;
 
-  /// 启动代理内核
-  Future<void> startKernel(KernelType kernel) async {
+  /// Initialize with default configuration
+  Future<void> initialize() async {
+    _status = ProxyStatus.starting;
+    notifyListeners();
+    
     try {
-      _status = KernelStatus.starting;
-      _currentKernel = kernel;
-      _errorMessage = null;
-      notifyListeners();
-
-      // 调用 Rust 核心层 API (通过 FFI 或 IPC)
-      // 这里使用模拟的异步操作
-      await Future.delayed(const Duration(seconds: 1));
-
-      _status = KernelStatus.running;
+      // Load default config or from storage
+      _currentConfig = _createDefaultConfig();
+      _status = ProxyStatus.idle;
       notifyListeners();
     } catch (e) {
-      _status = KernelStatus.error;
+      _status = ProxyStatus.error;
       _errorMessage = e.toString();
       notifyListeners();
-      rethrow;
     }
   }
 
-  /// 停止代理内核
-  Future<void> stopKernel() async {
-    try {
-      _status = KernelStatus.stopping;
-      notifyListeners();
-
-      // 调用 Rust 核心层 API
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      _status = KernelStatus.stopped;
-      _uploadSpeed = 0.0;
-      _downloadSpeed = 0.0;
-      notifyListeners();
-    } catch (e) {
-      _status = KernelStatus.error;
-      _errorMessage = e.toString();
-      notifyListeners();
-      rethrow;
-    }
-  }
-
-  /// 切换内核
-  Future<void> switchKernel(KernelType newKernel) async {
-    if (_status == KernelStatus.running) {
-      await stopKernel();
-    }
-    await startKernel(newKernel);
-  }
-
-  /// 加载配置
-  Future<void> loadConfig(String configPath) async {
-    try {
-      // 从文件加载配置
-      // 实际实现中会调用 Rust 核心层
-      _config = ProxyConfig(
-        kernelType: _currentKernel.name,
-        nodes: [
-          NodeConfig(
-            name: '示例节点',
-            type: 'vmess',
-            server: 'example.com',
-            port: 443,
-          ),
+  /// Create a comprehensive default sing-box config
+  SingBoxConfig _createDefaultConfig() {
+    return SingBoxConfig(
+      logLevel: 'info',
+      inbounds: [
+        Inbound(
+          type: 'mixed',
+          tag: 'mixed-in',
+          listen: '127.0.0.1',
+          listenPort: 2080,
+        ),
+        Inbound(
+          type: 'socks',
+          tag: 'socks-in',
+          listen: '127.0.0.1',
+          listenPort: 2081,
+        ),
+        Inbound(
+          type: 'http',
+          tag: 'http-in',
+          listen: '127.0.0.1',
+          listenPort: 2082,
+        ),
+      ],
+      outbounds: [
+        Outbound(
+          type: 'direct',
+          tag: 'direct',
+        ),
+        Outbound(
+          type: 'block',
+          tag: 'block',
+        ),
+        Outbound(
+          type: 'dns',
+          tag: 'dns-out',
+        ),
+        // Selector for manual switching
+        Outbound(
+          type: 'selector',
+          tag: 'proxy',
+          // outbounds will be populated dynamically
+        ),
+        // Auto test for latency-based selection
+        Outbound(
+          type: 'urltest',
+          tag: 'auto',
+          // outbounds and url will be populated dynamically
+        ),
+      ],
+      route: RouteConfig(
+        autoDetectInterface: true,
+        rules: [
+          RuleConfig(outbound: 'dns-out', protocol: 'dns'),
+          RuleConfig(outbound: 'direct', ipCidr: ['192.168.0.0/16', '10.0.0.0/8']),
+          RuleConfig(outbound: 'proxy', domainSuffix: ['.google.com', '.youtube.com']),
         ],
-      );
-      notifyListeners();
-    } catch (e) {
-      _errorMessage = '加载配置失败：$e';
-      notifyListeners();
-      rethrow;
-    }
+        geosite: [
+          GeoSiteEntry(tag: 'geosite-cn', url: 'https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite-cn.srs'),
+          GeoSiteEntry(tag: 'geosite-geolocation-!cn', url: 'https://github.com/SagerNet/sing-geosite/releases/latest/download/geosite-geolocation-!cn.srs'),
+        ],
+        geoip: [
+          GeoIpEntry(tag: 'geoip-cn', url: 'https://github.com/SagerNet/sing-geoip/releases/latest/download/geoip-cn.srs'),
+        ],
+      ),
+      dns: DnsConfig(
+        servers: [
+          DnsServer(tag: 'dns-local', address: '223.5.5.5'),
+          DnsServer(tag: 'dns-remote', address: 'tls://8.8.8.8'),
+          DnsServer(tag: 'dns-block', address: 'rcode://success'),
+        ],
+        rules: [
+          DnsRule(server: 'dns-local', domainSuffix: ['.cn']),
+          DnsRule(server: 'dns-remote', domainSuffix: ['.google.com']),
+          DnsRule(server: 'dns-block', type: 'AAAA'),
+        ],
+        finalServer: 'dns-local',
+        client: ClientDns(strategy: 'prefer_ipv4'),
+      ),
+      experimental: ExperimentalConfig(
+        tun: TunConfig(
+          enabled: false,
+          stack: 'mixed',
+          autoRoute: true,
+          strictRoute: false,
+        ),
+        clashApi: ClashApiConfig(
+          externalController: true,
+          externalUi: 'ui',
+          secret: '',
+        ),
+      ),
+    );
   }
 
-  /// 保存配置
-  Future<void> saveConfig(ProxyConfig config, String path) async {
+  /// Start the proxy core
+  Future<void> startProxy() async {
+    if (_currentConfig == null) {
+      _errorMessage = 'No configuration loaded';
+      _status = ProxyStatus.error;
+      notifyListeners();
+      return;
+    }
+
+    _status = ProxyStatus.starting;
+    notifyListeners();
+
     try {
-      // 保存配置到文件
-      _config = config;
+      // Simulate starting the core (in real app, this calls Rust core via IPC)
+      await Future.delayed(const Duration(seconds: 2));
+      
+      _status = ProxyStatus.running;
+      _errorMessage = null;
+      
+      // Start traffic monitoring simulation
+      _startTrafficMonitor();
+      
       notifyListeners();
     } catch (e) {
-      _errorMessage = '保存配置失败：$e';
+      _status = ProxyStatus.error;
+      _errorMessage = 'Failed to start proxy: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Stop the proxy core
+  Future<void> stopProxy() async {
+    _status = ProxyStatus.stopping;
+    notifyListeners();
+
+    try {
+      // Simulate stopping
+      await Future.delayed(const Duration(milliseconds: 500));
+      _status = ProxyStatus.idle;
+      _trafficUp = 0;
+      _trafficDown = 0;
+      _latency = 0;
+      notifyListeners();
+    } catch (e) {
+      _status = ProxyStatus.error;
+      _errorMessage = 'Failed to stop proxy: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Toggle TUN mode
+  Future<void> toggleTun(bool enabled) async {
+    if (_currentConfig == null) return;
+    
+    _currentConfig = SingBoxConfig(
+      logLevel: _currentConfig!.logLevel,
+      inbounds: _currentConfig!.inbounds,
+      outbounds: _currentConfig!.outbounds,
+      route: _currentConfig!.route,
+      dns: _currentConfig!.dns,
+      experimental: ExperimentalConfig(
+        tun: TunConfig(
+          enabled: enabled,
+          stack: _currentConfig!.experimental.tun?.stack ?? 'mixed',
+          autoRoute: _currentConfig!.experimental.tun?.autoRoute ?? true,
+        ),
+        clashApi: _currentConfig!.experimental.clashApi,
+      ),
+    );
+    
+    notifyListeners();
+    
+    // If running, reload config
+    if (_status == ProxyStatus.running) {
+      await _reloadConfig();
+    }
+  }
+
+  /// Switch outbound selector
+  Future<void> switchOutbound(String tag) async {
+    _selectedOutbound = tag;
+    notifyListeners();
+    // In real app, update the selector outbound in config and reload
+  }
+
+  /// Test latency for all outbounds
+  Future<Map<String, double>> testLatency() async {
+    // Simulate latency testing
+    await Future.delayed(const Duration(seconds: 3));
+    return {
+      'node1': 120.5,
+      'node2': 85.2,
+      'node3': 210.8,
+    };
+  }
+
+  /// Import configuration from JSON string
+  Future<void> importConfig(String jsonString) async {
+    try {
+      final jsonMap = jsonDecode(jsonString);
+      _currentConfig = SingBoxConfig.fromJson(jsonMap);
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Invalid configuration format: $e';
       notifyListeners();
       rethrow;
     }
   }
 
-  /// 启用系统代理
-  Future<void> enableSystemProxy() async {
-    // 调用 Rust 核心层的系统代理设置
-    debugPrint('启用系统代理');
+  /// Export configuration to JSON string
+  String exportConfig() {
+    if (_currentConfig == null) return '{}';
+    return jsonEncode(_currentConfig!.toJson());
   }
 
-  /// 禁用系统代理
-  Future<void> disableSystemProxy() async {
-    // 调用 Rust 核心层的系统代理设置
-    debugPrint('禁用系统代理');
-  }
-
-  /// 更新流量统计
-  void updateTraffic(double upload, double download) {
-    _uploadSpeed = upload;
-    _downloadSpeed = download;
+  /// Reload configuration without restart
+  Future<void> _reloadConfig() async {
+    // Simulate hot reload
+    await Future.delayed(const Duration(milliseconds: 800));
     notifyListeners();
   }
 
-  /// 测试延迟
-  Future<int> testLatency(String nodeName) async {
-    // 模拟延迟测试
-    await Future.delayed(const Duration(milliseconds: 200));
-    return (DateTime.now().millisecond % 100) + 50;
+  /// Traffic monitoring simulation
+  void _startTrafficMonitor() {
+    Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_status != ProxyStatus.running) {
+        timer.cancel();
+        return;
+      }
+      _trafficUp = (_trafficUp + (DateTime.now().millisecond % 100)).toDouble() as int;
+      _trafficDown = (_trafficDown + (DateTime.now().millisecond % 500)).toDouble() as int;
+      _latency = 50 + (DateTime.now().millisecond % 100);
+      notifyListeners();
+    });
+  }
+
+  /// Update routing rules
+  void updateRoutingRules(List<RuleConfig> rules) {
+    if (_currentConfig == null) return;
+    
+    _currentConfig = SingBoxConfig(
+      logLevel: _currentConfig!.logLevel,
+      inbounds: _currentConfig!.inbounds,
+      outbounds: _currentConfig!.outbounds,
+      route: RouteConfig(
+        autoDetectInterface: _currentConfig!.route.autoDetectInterface,
+        rules: rules,
+        geosite: _currentConfig!.route.geosite,
+        geoip: _currentConfig!.route.geoip,
+      ),
+      dns: _currentConfig!.dns,
+      experimental: _currentConfig!.experimental,
+    );
+    notifyListeners();
+  }
+
+  /// Add new outbound (node)
+  void addOutbound(Outbound outbound) {
+    if (_currentConfig == null) return;
+    
+    final updatedOutbounds = List<Outbound>.from(_currentConfig!.outbounds)..add(outbound);
+    
+    _currentConfig = SingBoxConfig(
+      logLevel: _currentConfig!.logLevel,
+      inbounds: _currentConfig!.inbounds,
+      outbounds: updatedOutbounds,
+      route: _currentConfig!.route,
+      dns: _currentConfig!.dns,
+      experimental: _currentConfig!.experimental,
+    );
+    notifyListeners();
+  }
+
+  /// Remove outbound by tag
+  void removeOutbound(String tag) {
+    if (_currentConfig == null) return;
+    
+    final updatedOutbounds = _currentConfig!.outbounds.where((o) => o.tag != tag).toList();
+    
+    _currentConfig = SingBoxConfig(
+      logLevel: _currentConfig!.logLevel,
+      inbounds: _currentConfig!.inbounds,
+      outbounds: updatedOutbounds,
+      route: _currentConfig!.route,
+      dns: _currentConfig!.dns,
+      experimental: _currentConfig!.experimental,
+    );
+    notifyListeners();
   }
 }

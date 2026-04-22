@@ -1,346 +1,542 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/proxy_service.dart';
-import '../models/config.dart';
+import '../models/singbox_config.dart';
 
-class HomeScreen extends StatelessWidget {
+/// Main Home Screen with Dashboard, Nodes, Routing, DNS, and Settings tabs
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _currentIndex = 0;
+
+  final List<Widget> _screens = [
+    const DashboardScreen(),
+    const NodesScreen(),
+    const RoutingScreen(),
+    const DnsScreen(),
+    const SettingsScreen(),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Proxy Client'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => _showSettings(context),
-          ),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.dns), label: 'Nodes'),
+          NavigationDestination(icon: Icon(Icons.route), label: 'Routing'),
+          NavigationDestination(icon: Icon(Icons.security), label: 'DNS'),
+          NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
         ],
       ),
-      body: Consumer<ProxyService>(
-        builder: (context, service, child) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // 状态卡片
-                _buildStatusCard(service),
-                const SizedBox(height: 16),
+    );
+  }
+}
 
-                // 内核选择
-                _buildKernelSelector(service),
-                const SizedBox(height: 16),
+// ==================== Dashboard Screen ====================
 
-                // 流量统计
-                _buildTrafficCard(service),
-                const SizedBox(height: 16),
+class DashboardScreen extends StatelessWidget {
+  const DashboardScreen({super.key});
 
-                // 节点列表
-                _buildNodeList(service),
-              ],
+  @override
+  Widget build(BuildContext context) {
+    final proxyService = context.watch<ProxyService>();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Status Card
+          _buildStatusCard(proxyService),
+          
+          const SizedBox(height: 16),
+          
+          // Traffic Stats
+          Row(
+            children: [
+              Expanded(child: _buildTrafficCard('Upload', proxyService.trafficUp, Icons.upload)),
+              const SizedBox(width: 12),
+              Expanded(child: _buildTrafficCard('Download', proxyService.trafficDown, Icons.download)),
+            ],
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Quick Actions
+          _buildQuickActions(context, proxyService),
+          
+          const SizedBox(height: 16),
+          
+          // Connection Info
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Connection Info', style: Theme.of(context).textTheme.titleMedium),
+                  const Divider(),
+                  _buildInfoRow('Status', proxyService.status.name.toUpperCase()),
+                  _buildInfoRow('Mode', proxyService.isTunEnabled ? 'TUN' : 'Proxy'),
+                  _buildInfoRow('Latency', '${proxyService.latency.toStringAsFixed(1)} ms'),
+                  _buildInfoRow('Selected', proxyService.selectedOutbound),
+                ],
+              ),
             ),
-          );
-        },
-      ),
-      floatingActionButton: Consumer<ProxyService>(
-        builder: (context, service, child) {
-          return FloatingActionButton.extended(
-            onPressed: () => _toggleProxy(service),
-            icon: Icon(service.isRunning ? Icons.stop : Icons.play_arrow),
-            label: Text(service.isRunning ? '停止' : '启动'),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildStatusCard(ProxyService service) {
+    final isRunning = service.isRunning;
+    final color = isRunning ? Colors.green : (service.status == ProxyStatus.error ? Colors.red : Colors.grey);
+    
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: service.status.getColor(context),
-                    shape: BoxShape.circle,
+      color: color.withOpacity(0.1),
+      child: InkWell(
+        onTap: () => isRunning ? service.stopProxy() : service.startProxy(),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isRunning ? 'Proxy Running' : 'Proxy Stopped',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  service.status.description,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-              ],
-            ),
-            if (service.errorMessage != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                service.errorMessage!,
-                style: TextStyle(color: Colors.red.shade700),
-                textAlign: TextAlign.center,
+                  const SizedBox(height: 8),
+                  Text(
+                    isRunning ? 'Tap to stop' : 'Tap to start',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                  ),
+                ],
+              ),
+              Icon(
+                isRunning ? Icons.power_settings_new : Icons.power_off,
+                size: 48,
+                color: color,
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildKernelSelector(ProxyService service) {
+  Widget _buildTrafficCard(String label, int bytes, IconData icon) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '内核选择',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<KernelType>(
-              segments: const [
-                ButtonSegment(
-                  value: KernelType.singBox,
-                  label: Text('sing-box'),
-                ),
-                ButtonSegment(
-                  value: KernelType.mihomo,
-                  label: Text('mihomo'),
-                ),
-                ButtonSegment(
-                  value: KernelType.v2Ray,
-                  label: Text('v2ray'),
-                ),
-              ],
-              selected: {service.currentKernel},
-              onSelectionChanged: (Set<KernelType> selected) {
-                if (selected.isNotEmpty) {
-                  service.switchKernel(selected.first);
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTrafficCard(ProxyService service) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '流量统计',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Column(
-                  children: [
-                    Icon(Icons.arrow_upward, color: Colors.green),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${service.uploadSpeed.toStringAsFixed(2)} KB/s',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    const Text('上传', style: TextStyle(fontSize: 12)),
-                  ],
-                ),
-                Column(
-                  children: [
-                    Icon(Icons.arrow_downward, color: Colors.blue),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${service.downloadSpeed.toStringAsFixed(2)} KB/s',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    const Text('下载', style: TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNodeList(ProxyService service) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '节点列表',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                TextButton.icon(
-                  onPressed: () => _importConfig(context, service),
-                  icon: const Icon(Icons.add),
-                  label: const Text('导入'),
-                ),
-              ],
-            ),
+            Icon(icon, size: 32, color: Colors.blue),
             const SizedBox(height: 8),
-            if (service.config?.nodes.isEmpty ?? true)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: Text('暂无节点，请点击右上角导入配置'),
-                ),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: service.config?.nodes.length ?? 0,
-                itemBuilder: (context, index) {
-                  final node = service.config!.nodes[index];
-                  return ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.dns),
-                    ),
-                    title: Text(node.name),
-                    subtitle: Text('${node.server}:${node.port}'),
-                    trailing: FutureBuilder<int>(
-                      future: service.testLatency(node.name),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          );
-                        }
-                        final latency = snapshot.data ?? 0;
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: latency < 100
-                                ? Colors.green.shade100
-                                : latency < 200
-                                    ? Colors.orange.shade100
-                                    : Colors.red.shade100,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '$latency ms',
-                            style: TextStyle(
-                              color: latency < 100
-                                  ? Colors.green.shade700
-                                  : latency < 200
-                                      ? Colors.orange.shade700
-                                      : Colors.red.shade700,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
+            Text(_formatBytes(bytes), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(label, style: const TextStyle(color: Colors.grey)),
           ],
         ),
       ),
     );
   }
 
-  void _toggleProxy(ProxyService service) {
-    if (service.isRunning) {
-      service.stopKernel();
-    } else {
-      service.startKernel(service.currentKernel);
-    }
-  }
-
-  void _showSettings(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => const SettingsSheet(),
+  Widget _buildQuickActions(BuildContext context, ProxyService service) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Quick Actions', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => service.toggleTun(!service.isTunEnabled),
+                  icon: Icon(service.isTunEnabled ? Icons.check_circle : Icons.circle_outlined),
+                  label: Text(service.isTunEnabled ? 'TUN On' : 'TUN Off'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final result = await service.testLatency();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Latency test completed: ${result.length} nodes')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.speed),
+                  label: const Text('Test Latency'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showImportDialog(context, service),
+                  icon: const Icon(Icons.file_upload),
+                  label: const Text('Import Config'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  void _importConfig(BuildContext context, ProxyService service) {
-    // TODO: 实现配置文件导入
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('配置文件导入功能开发中...')),
-    );
-  }
-}
-
-/// 设置面板
-class SettingsSheet extends StatelessWidget {
-  const SettingsSheet({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            '设置',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const Divider(),
-          SwitchListTile(
-            title: const Text('开机自启'),
-            value: false,
-            onChanged: (value) {},
-          ),
-          SwitchListTile(
-            title: const Text('系统代理'),
-            value: false,
-            onChanged: (value) {},
-          ),
-          ListTile(
-            title: const Text('关于'),
-            trailing: const Icon(Icons.info_outline),
-            onTap: () => _showAbout(context),
-          ),
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
         ],
       ),
     );
   }
 
-  void _showAbout(BuildContext context) {
-    showAboutDialog(
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  void _showImportDialog(BuildContext context, ProxyService service) {
+    final controller = TextEditingController();
+    showDialog(
       context: context,
-      applicationName: 'Proxy Client',
-      applicationVersion: '1.0.0',
-      applicationLegalese: '© 2024 Open Source',
+      builder: (ctx) => AlertDialog(
+        title: const Text('Import Configuration'),
+        content: TextField(
+          controller: controller,
+          maxLines: 5,
+          decoration: const InputDecoration(hintText: 'Paste JSON config here'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              service.importConfig(controller.text);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Config imported')));
+            },
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==================== Nodes Screen ====================
+
+class NodesScreen extends StatelessWidget {
+  const NodesScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<ProxyService>();
+    final outbounds = service.currentConfig?.outbounds ?? [];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Proxy Nodes')),
+      body: ListView.builder(
+        itemCount: outbounds.length,
+        itemBuilder: (ctx, i) {
+          final outbound = outbounds[i];
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: ListTile(
+              leading: _getProtocolIcon(outbound.type),
+              title: Text(outbound.tag),
+              subtitle: Text('${outbound.type}${outbound.server != null ? ' - ${outbound.server}' : ''}'),
+              trailing: outbound.type == 'selector' || outbound.type == 'urltest' 
+                  ? const Icon(Icons.group)
+                  : IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => service.removeOutbound(outbound.tag),
+                    ),
+              onTap: () => _showNodeDetails(context, outbound),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddNodeDialog(context, service),
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  Widget _getProtocolIcon(String type) {
+    switch (type) {
+      case 'vmess': return const Icon(Icons.flash_on, color: Colors.orange);
+      case 'vless': return const Icon(Icons.bolt, color: Colors.amber);
+      case 'trojan': return const Icon(Icons.shield, color: Colors.purple);
+      case 'shadowsocks': return const Icon(Icons.lock, color: Colors.blue);
+      case 'hysteria': 
+      case 'hysteria2': return const Icon(Icons.rocket, color: Colors.red);
+      case 'tuic': return const Icon(Icons.speed, color: Colors.teal);
+      case 'wireguard': return const Icon(Icons.vpn_key, color: Colors.green);
+      default: return const Icon(Icons.public);
+    }
+  }
+
+  void _showNodeDetails(BuildContext context, Outbound node) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(node.tag, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text('Type: ${node.type}'),
+            if (node.server != null) Text('Server: ${node.server}:${node.serverPort}'),
+            if (node.tls != null) Text('TLS: ${node.tls!.enabled ? "Enabled" : "Disabled"}'),
+            if (node.reality != null) Text('Reality: Enabled'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddNodeDialog(BuildContext context, ProxyService service) {
+    // Simplified for demo - in real app would have full form
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Node'),
+        content: const Text('Select protocol and enter details'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              // Add a sample node
+              service.addOutbound(Outbound(
+                type: 'vmess',
+                tag: 'new-node-${DateTime.now().millisecondsSinceEpoch}',
+                server: 'example.com',
+                serverPort: 443,
+                uuid: 'xxxx-xxxx-xxxx',
+                tls: TlsConfig(enabled: true, serverName: 'example.com'),
+              ));
+              Navigator.pop(ctx);
+            },
+            child: const Text('Add VMess'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==================== Routing Screen ====================
+
+class RoutingScreen extends StatelessWidget {
+  const RoutingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<ProxyService>();
+    final rules = service.currentConfig?.route.rules ?? [];
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Routing Rules')),
+      body: ListView.builder(
+        itemCount: rules.length,
+        itemBuilder: (ctx, i) {
+          final rule = rules[i];
+          return Card(
+            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: ListTile(
+              title: Text('Rule #${i + 1}'),
+              subtitle: Text('→ ${rule.outbound}'),
+              trailing: Chip(label: Text(rule.protocol ?? 'all')),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddRuleDialog(context, service),
+        child: const Icon(Icons.add_rule),
+      ),
+    );
+  }
+
+  void _showAddRuleDialog(BuildContext context, ProxyService service) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Routing Rule'),
+        content: const Text('Configure domain/IP based routing'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              service.updateRoutingRules([
+                ...service.currentConfig!.route.rules,
+                RuleConfig(outbound: 'proxy', domainSuffix: ['.netflix.com']),
+              ]);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Add Netflix Rule'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==================== DNS Screen ====================
+
+class DnsScreen extends StatelessWidget {
+  const DnsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<ProxyService>();
+    final dnsConfig = service.currentConfig?.dns;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('DNS Configuration')),
+      body: dnsConfig == null
+          ? const Center(child: Text('No DNS config'))
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('DNS Servers', style: Theme.of(context).textTheme.titleMedium),
+                        const Divider(),
+                        ...dnsConfig.servers.map((s) => ListTile(
+                          leading: const Icon(Icons.dns),
+                          title: Text(s.tag),
+                          subtitle: Text(s.address),
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('DNS Rules', style: Theme.of(context).textTheme.titleMedium),
+                        const Divider(),
+                        ...dnsConfig.rules.map((r) => ListTile(
+                          leading: const Icon(Icons.rule),
+                          title: Text('Server: ${r.server}'),
+                          subtitle: Text(r.domainSuffix?.join(', ') ?? r.ipCidr?.join(', ') ?? 'All'),
+                        )),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+// ==================== Settings Screen ====================
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<ProxyService>();
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
       children: [
-        const Text('多平台代理客户端'),
-        const Text('支持 sing-box, mihomo, v2ray-core'),
+        Card(
+          child: Column(
+            children: [
+              SwitchListTile(
+                title: const Text('TUN Mode'),
+                subtitle: const Text('Intercept all system traffic'),
+                value: service.isTunEnabled,
+                onChanged: (v) => service.toggleTun(v),
+              ),
+              const Divider(),
+              SwitchListTile(
+                title: const Text('Auto Start'),
+                subtitle: const Text('Start proxy on app launch'),
+                value: false,
+                onChanged: (v) {},
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.content_copy),
+                title: const Text('Export Config'),
+                onTap: () {
+                  final json = service.exportConfig();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Config exported (${json.length} bytes)')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.info),
+                title: const Text('About'),
+                onTap: () => showAboutDialog(context),
+              ),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+
+  void showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Proxy Client'),
+        content: const Text('Version 1.0.0\nSupports sing-box, mihomo, v2ray-core'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
     );
   }
 }
