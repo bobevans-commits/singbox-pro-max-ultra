@@ -1,7 +1,4 @@
 ```
-# CI/CD
-.github/
-
 # Logs and temp files
 *.log
 *.tmp
@@ -12,6 +9,10 @@
 .env.local
 *.env.*
 
+# Editors
+.vscode/
+.idea/
+
 # Dependencies
 node_modules/
 .venv/
@@ -21,19 +22,30 @@ __pycache__/
 .pytest_cache/
 .julia/
 zig*/
-julia-*/
+target/
+.gradle/
 
 # Build artifacts
 dist/
 build/
-target/
+*.pyc
+*.class
 *.o
 *.obj
-*.out
 *.exe
 *.dll
 *.so
 *.a
+*.out
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# System files
+.DS_Store
+Thumbs.db
 
 # Compressed files
 *.zip
@@ -58,19 +70,4 @@ target/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# System
-.DS_Store
-Thumbs.db
 ```
