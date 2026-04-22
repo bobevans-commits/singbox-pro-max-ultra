@@ -1,29 +1,35 @@
 ```
-# Dart/Flutter
+# Flutter/Dart specific
 .dart_tool/
 .packages
+flutter/ephemeral/
+
+# Build outputs
+/build/
+*.apk
+*.aab
+*.ipa
+*.app
+
+# Dependencies
 pubspec.lock
-build/
 
-# Compiled binaries
-universal-proxy-party/binaries/
+# Environment variables
+.env
+.env.local
+*.env.*
 
-# IDE
+# Logs
+*.log
+logs/
+
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs
-*.log
-
-# Environment
-.env
-.env.local
-*.env.*
-
-# Temp files
-*.tmp
+# OS generated files
 .DS_Store
 Thumbs.db
 ```
