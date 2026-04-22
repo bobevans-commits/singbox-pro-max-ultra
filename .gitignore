@@ -1,43 +1,35 @@
 ```
-# Build artifacts
-build/
-*.apk
-*.aab
-*.app
-*.exe
-*.dll
-*.so
-*.dylib
-
 # Dependencies
-**/node_modules/
-**/.pub-cache/
-**/.dart_tool/
+.dart_tool/
+.packages
+.pub/
+pubspec.lock
 
-# Logs
+# Build
+build/
+**/ios/.generated/
+**/android/.generated/
+
+# Testing
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
 *.log
 
 # Environment variables
 .env
 .env.local
-.env.*
-!.env.example
+*.env.*
 
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# IDE files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Coverage reports
-coverage/
-*.lcov
-
-# Testing
-*.tmp
-*.temp
+# OS generated files
+.DS_Store
+Thumbs.db
 ```
