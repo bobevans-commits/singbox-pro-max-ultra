@@ -1,0 +1,16 @@
+# 示例配置文件 - 请复制为 key.properties 并填入真实值
+# Android Keystore Configuration
+# Rename this file to key.properties and fill in your actual values
+# DO NOT commit this file with real passwords to version control
+
+# Path to your keystore file (relative to android/ directory)
+storeFile=upload-keystore.jks
+
+# Keystore password
+storePassword=YOUR_KEYSTORE_PASSWORD
+
+# Key alias
+keyAlias=upload
+
+# Key password
+keyPassword=YOUR_KEY_PASSWORD
