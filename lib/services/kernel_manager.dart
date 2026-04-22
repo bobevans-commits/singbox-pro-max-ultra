@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../models/config.dart';
 import '../models/kernel_info.dart';
+import '../utils/app_exceptions.dart';
+import '../utils/platform_detector.dart';
 
 /// 内核管理服务 - 负责多内核的下载、更新、切换和管理
 class KernelManager extends ChangeNotifier {
@@ -177,9 +179,17 @@ class KernelManager extends ChangeNotifier {
     String? version,
   }) async {
     final kernelType = type ?? _selectedKernelType;
-    final targetVersion = version ?? _releases[kernelType]?.first.version;
+    final releases = _releases[kernelType];
+    
+    if (releases == null || releases.isEmpty) {
+      _errorMessage = 'No release information available for ${kernelType.name}';
+      notifyListeners();
+      return false;
+    }
+    
+    final targetVersion = version ?? releases.first.version;
 
-    if (targetVersion == null) {
+    if (targetVersion.isEmpty) {
       _errorMessage = 'No version specified or available';
       notifyListeners();
       return false;
@@ -241,7 +251,11 @@ class KernelManager extends ChangeNotifier {
 
       // 设置可执行权限 (Unix-like 系统)
       if (!Platform.isWindows) {
-        await Process.run('chmod', ['+x', filePath]);
+        try {
+          await Process.run('chmod', ['+x', filePath]);
+        } catch (e) {
+          debugPrint('Failed to set executable permission: $e');
+        }
       }
 
       // 更新内核信息
@@ -257,8 +271,27 @@ class KernelManager extends ChangeNotifier {
       _currentDownload = null;
       notifyListeners();
       return true;
-    } catch (e) {
-      _errorMessage = 'Download failed: $e';
+    } on HttpException catch (e, stackTrace) {
+      final error = NetworkException('Network error during download', e, stackTrace);
+      _errorMessage = error.message;
+      _currentDownload = null;
+      notifyListeners();
+      return false;
+    } on SocketException catch (e, stackTrace) {
+      final error = NetworkException('Connection failed', e, stackTrace);
+      _errorMessage = error.message;
+      _currentDownload = null;
+      notifyListeners();
+      return false;
+    } on IOException catch (e, stackTrace) {
+      final error = FileException('File operation failed', e, stackTrace);
+      _errorMessage = error.message;
+      _currentDownload = null;
+      notifyListeners();
+      return false;
+    } catch (e, stackTrace) {
+      final error = KernelException('Download failed: ${e.toString()}', e, stackTrace);
+      _errorMessage = error.message;
       _currentDownload = null;
       notifyListeners();
       return false;
@@ -266,9 +299,10 @@ class KernelManager extends ChangeNotifier {
   }
 
   /// 获取下载 URL
+  /// 获取下载 URL
   String _getDownloadUrl(KernelType type, String version) {
-    final platform = _getCurrentPlatform();
-    final arch = _getCurrentArch();
+    final platform = PlatformDetector.getPlatformName();
+    final arch = PlatformDetector.getArchitecture();
     
     switch (type) {
       case KernelType.singBox:
@@ -278,26 +312,6 @@ class KernelManager extends ChangeNotifier {
       case KernelType.v2Ray:
         return 'https://github.com/XTLS/Xray-core/releases/download/v$version/Xray-$platform-$arch.zip';
     }
-  }
-
-  /// 获取当前平台标识
-  String _getCurrentPlatform() {
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isMacOS) return 'darwin';
-    if (Platform.isLinux) return 'linux';
-    if (Platform.isAndroid) return 'android';
-    if (Platform.isIOS) return 'ios';
-    return 'unknown';
-  }
-
-  /// 获取当前架构标识
-  String _getCurrentArch() {
-    final arch = Platform.localHostname.toLowerCase();
-    if (arch.contains('x86') || arch.contains('amd64')) return 'amd64';
-    if (arch.contains('arm') || arch.contains('aarch64')) {
-      return Platform.isMacOS ? 'arm64' : 'arm64';
-    }
-    return 'amd64'; // 默认
   }
 
   /// 获取内核文件名

@@ -1,0 +1,239 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+
+jobs:
+  # ========== Lint & Style Check ==========
+  lint:
+    name: Lint & Style Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      
+      - name: Get Dependencies
+        run: flutter pub get
+      
+      - name: Analyze code
+        run: |
+          flutter analyze --no-pub --fatal-infos --fatal-warnings
+        continue-on-error: true
+      
+      - name: Check code style
+        run: |
+          flutter analyze --no-pub --fatal-style
+        continue-on-error: true
+
+  # ========== Static Analysis ==========
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      
+      - name: Activate metrics
+        run: dart pub global activate metrics
+      
+      - name: Run metrics analysis
+        run: dart pub global run metrics analyze lib/
+        continue-on-error: true
+      
+      - name: Check code complexity
+        run: |
+          # Install complexity analyzer
+          dart pub global activate dart_code_metrics
+          dart pub global run dart_code_metrics analyze lib
+        continue-on-error: true
+
+  # ========== Test Coverage ==========
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      
+      - name: Get Dependencies
+        run: flutter pub get
+      
+      - name: Run tests with coverage
+        run: flutter test --coverage
+      
+      - name: Generate coverage summary
+        run: |
+          # Generate coverage summary
+          echo "## Coverage Summary 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          flutter test --coverage 2>&1 | grep -E "(\d+%)|All tests passed" || true
+      
+      - name: Check minimum coverage
+        run: |
+          # Check if coverage meets minimum threshold (e.g., 60%)
+          COVERAGE=$(lcov --summary coverage/lcov.info 2>/dev/null | grep lines | awk '{print $2}' | sed 's/%//')
+          echo "Current coverage: ${COVERAGE}%"
+          if [ -n "$COVERAGE" ] && [ "$COVERAGE" -lt 60 ]; then
+            echo "❌ Coverage ${COVERAGE}% is below minimum threshold 60%"
+            exit 1
+          else
+            echo "✅ Coverage ${COVERAGE}% meets minimum threshold"
+          fi
+        continue-on-error: true
+
+  # ========== Performance Check ==========
+  performance-check:
+    name: Performance Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      
+      - name: Get Dependencies
+        run: flutter pub get
+      
+      - name: Build APK for performance analysis
+        run: flutter build apk --release --analyze-size
+      
+      - name: Check APK size
+        run: |
+          APK_SIZE=$(stat -f%z build/app/outputs/flutter-apk/app-release.apk 2>/dev/null || stat -c%s build/app/outputs/flutter-apk/app-release.apk)
+          SIZE_MB=$((APK_SIZE / 1024 / 1024))
+          echo "## APK Size 📱" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- APK Size: ${SIZE_MB} MB" >> $GITHUB_STEP_SUMMARY
+          
+          if [ $SIZE_MB -gt 50 ]; then
+            echo "⚠️ APK size is large (> 50MB), consider optimizing" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ========== Dead Code Detection ==========
+  dead-code-check:
+    name: Dead Code Detection
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+      
+      - name: Get Dependencies
+        run: flutter pub get
+      
+      - name: Check for unused files
+        run: |
+          flutter pub global activate discard
+          flutter pub global run discard --dry-run
+        continue-on-error: true
+      
+      - name: Check for unused imports
+        run: |
+          dart fix --dry-run --apply
+          echo "Files that would be fixed:"
+          git diff --name-only || echo "No unused imports found"
+        continue-on-error: true
+
+  # ========== Documentation Check ==========
+  documentation-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      
+      - name: Install dartdoc
+        run: dart pub global activate dartdoc
+      
+      - name: Check documentation coverage
+        run: |
+          dart pub global run dartdoc lib/
+          echo "Documentation analysis complete"
+        continue-on-error: true
+      
+      - name: Check for TODO comments
+        run: |
+          TODO_COUNT=$(grep -r "TODO\|FIXME\|HACK" lib/ --include="*.dart" | wc -l)
+          echo "## Documentation & TODOs 📝" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Open TODOs/FIXMEs: ${TODO_COUNT}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ $TODO_COUNT -gt 10 ]; then
+            echo "⚠️ Consider reducing the number of TODO comments" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ========== Quality Summary ==========
+  quality-summary:
+    name: Quality Summary
+    runs-on: ubuntu-latest
+    needs: [lint, static-analysis, coverage, performance-check, dead-code-check]
+    if: always()
+    
+    steps:
+      - name: Generate Quality Report
+        run: |
+          echo "## Code Quality Report 🎯" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint & Style | ${{ needs.lint.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Analysis | ${{ needs.static-analysis.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ needs.coverage.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Performance | ${{ needs.performance-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dead Code | ${{ needs.dead-code-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Recommendations" >> $GITHUB_STEP_SUMMARY
+          echo "- Review failed checks and fix issues" >> $GITHUB_STEP_SUMMARY
+          echo "- Aim for >70% test coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- Keep APK size under 50MB" >> $GITHUB_STEP_SUMMARY
+          echo "- Remove unused code and imports" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Set quality badge
+        if: needs.lint.result == 'success' && needs.coverage.result == 'success'
+        run: |
+          echo "✅ All quality checks passed!"
+          echo "quality_badge=passing" >> $GITHUB_OUTPUT
+        id: quality

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../models/singbox_config.dart';
+import '../utils/app_exceptions.dart';
 
 enum ProxyStatus { idle, starting, running, stopping, error }
 
@@ -13,6 +14,7 @@ class ProxyService extends ChangeNotifier {
   int _trafficDown = 0;
   double _latency = 0;
   String _selectedOutbound = 'direct';
+  Timer? _trafficTimer;
   
   // Getters
   ProxyStatus get status => _status;
@@ -140,10 +142,11 @@ class ProxyService extends ChangeNotifier {
   /// Start the proxy core
   Future<void> startProxy() async {
     if (_currentConfig == null) {
-      _errorMessage = 'No configuration loaded';
+      final error = ProxyException('No configuration loaded');
+      _errorMessage = error.message;
       _status = ProxyStatus.error;
       notifyListeners();
-      return;
+      throw error;
     }
 
     _status = ProxyStatus.starting;
@@ -161,9 +164,11 @@ class ProxyService extends ChangeNotifier {
       
       notifyListeners();
     } catch (e) {
+      final error = ProxyException('Failed to start proxy', e);
       _status = ProxyStatus.error;
-      _errorMessage = 'Failed to start proxy: $e';
+      _errorMessage = error.message;
       notifyListeners();
+      throw error;
     }
   }
 
@@ -179,11 +184,14 @@ class ProxyService extends ChangeNotifier {
       _trafficUp = 0;
       _trafficDown = 0;
       _latency = 0;
+      _trafficTimer?.cancel(); // Cancel timer when stopping
       notifyListeners();
     } catch (e) {
+      final error = ProxyException('Failed to stop proxy', e);
       _status = ProxyStatus.error;
-      _errorMessage = 'Failed to stop proxy: $e';
+      _errorMessage = error.message;
       notifyListeners();
+      throw error;
     }
   }
 
@@ -236,13 +244,28 @@ class ProxyService extends ChangeNotifier {
   /// Import configuration from JSON string
   Future<void> importConfig(String jsonString) async {
     try {
+      if (jsonString.trim().isEmpty) {
+        throw ConfigException('Configuration JSON is empty');
+      }
+      
       final jsonMap = jsonDecode(jsonString);
+      
+      if (jsonMap is! Map<String, dynamic>) {
+        throw ConfigException('Invalid configuration format: expected JSON object');
+      }
+      
       _currentConfig = SingBoxConfig.fromJson(jsonMap);
       notifyListeners();
-    } catch (e) {
-      _errorMessage = 'Invalid configuration format: $e';
+    } on FormatException catch (e, stackTrace) {
+      final error = ConfigException('Invalid JSON format', e, stackTrace);
+      _errorMessage = error.message;
       notifyListeners();
-      rethrow;
+      throw error;
+    } catch (e, stackTrace) {
+      final error = ConfigException('Failed to parse configuration', e, stackTrace);
+      _errorMessage = error.message;
+      notifyListeners();
+      throw error;
     }
   }
 
@@ -261,13 +284,15 @@ class ProxyService extends ChangeNotifier {
 
   /// Traffic monitoring simulation
   void _startTrafficMonitor() {
-    Timer.periodic(const Duration(seconds: 1), (timer) {
+    _trafficTimer?.cancel(); // Cancel existing timer if any
+    
+    _trafficTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_status != ProxyStatus.running) {
         timer.cancel();
         return;
       }
-      _trafficUp = (_trafficUp + (DateTime.now().millisecond % 100)).toDouble() as int;
-      _trafficDown = (_trafficDown + (DateTime.now().millisecond % 500)).toDouble() as int;
+      _trafficUp = _trafficUp + (DateTime.now().millisecond % 100);
+      _trafficDown = _trafficDown + (DateTime.now().millisecond % 500);
       _latency = 50 + (DateTime.now().millisecond % 100);
       notifyListeners();
     });
@@ -325,5 +350,11 @@ class ProxyService extends ChangeNotifier {
       experimental: _currentConfig!.experimental,
     );
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _trafficTimer?.cancel();
+    super.dispose();
   }
 }
