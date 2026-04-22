@@ -33,10 +33,10 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Git LFS
-        uses: git-lfs/setup-git-lfs@v3
+        uses: git-lfs/git-lfs@v3
 
       - name: Setup Rust
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
         with:
           rust-version: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
