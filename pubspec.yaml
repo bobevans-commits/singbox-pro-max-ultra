@@ -21,7 +21,7 @@ dependencies:
   process_run: ^0.12.0
   yaml: ^3.1.0
   collection: ^1.18.0
-  archive: ^3.4.0
+  archive: ">=3.4.0 <5.0.0"
   fl_chart: ^0.65.0
 
 dev_dependencies:
