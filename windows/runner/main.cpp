@@ -1,13 +1,6 @@
-#include <flutter/dart_api.h>
-#include <flutter/event_channel.h>
-#include <flutter/event_sink.h>
-#include <flutter/event_stream_handler_functions.h>
-#include <flutter/method_channel.h>
-#include <flutter/standard_method_codec.h>
+#include <flutter/dart_project.h>
+#include <flutter/flutter_view_controller.h>
 #include <windows.h>
-
-#include <memory>
-#include <string>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -19,12 +12,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
     CreateAndAttachConsole();
   }
-
-  // Change working directory to the executable's directory
-  std::wstring executable_path = GetExecutablePath();
-  std::wstring executable_dir = executable_path.substr(
-      0, executable_path.find_last_of(L"\\"));
-  ::SetCurrentDirectory(executable_dir.c_str());
 
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
@@ -40,7 +27,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"proxy_client_ui", origin, size)) {
+  if (!window.Create(L"my_app_flutter", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

@@ -29,10 +29,11 @@ class Win32Window {
   virtual ~Win32Window();
 
   // Creates a win32 window with |title| that is positioned and sized using
-  // |origin| and |size|. New windows are created on the default monitor.
-  // Window sizes are specified to the OS in physical pixels, hence to ensure a
-  // consistent size this function will scale the inputted width and height by
-  // the current DPI scale factor for the default monitor.
+  // |origin| and |size|. New windows are created on the default monitor. Window
+  // sizes are specified to the OS in physical pixels, hence to ensure a
+  // consistent size this function will scale the inputted width and height as
+  // as appropriate for the default monitor. The window is invisible until
+  // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
   // Show the current window. Returns true if the window was successfully shown.
@@ -45,7 +46,7 @@ class Win32Window {
   void SetChildContent(HWND content);
 
   // Returns the backing Window handle to enable clients to set icon and other
-  // window properties. Returns nullptr if the window is destroyed.
+  // window properties. Returns nullptr if the window has been destroyed.
   HWND GetHandle();
 
   // If true, closing this window will quit the application.
@@ -58,13 +59,14 @@ class Win32Window {
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
   // inheriting classes can handle.
-  virtual LRESULT MessageHandler(HWND window, UINT const message,
+  virtual LRESULT MessageHandler(HWND window,
+                                 UINT const message,
                                  WPARAM const wparam,
                                  LPARAM const lparam) noexcept;
 
-  // Called when CreateAndShow is called, allowing subwindow to configure its
-  // properties.
-  virtual void OnCreate();
+  // Called when CreateAndShow is called, allowing subclass window-related
+  // setup. Subclasses should return false if setup fails.
+  virtual bool OnCreate();
 
   // Called when Destroy is called.
   virtual void OnDestroy();
@@ -77,7 +79,8 @@ class Win32Window {
   // non-client DPI scaling so that the non-client area automatically
   // responds to changes in DPI. All other messages are handled by
   // MessageHandler.
-  static LRESULT CALLBACK WndProc(HWND const window, UINT const message,
+  static LRESULT CALLBACK WndProc(HWND const window,
+                                  UINT const message,
                                   WPARAM const wparam,
                                   LPARAM const lparam) noexcept;
 
