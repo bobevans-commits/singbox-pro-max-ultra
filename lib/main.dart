@@ -116,11 +116,6 @@ class _MainNavigationState extends State<MainNavigation> {
     _loadConfig();
   }
 
-  ConfigStorageService _getStorage() {
-    _storage ??= ConfigStorageService()..initSync();
-    return _storage!;
-  }
-
   Future<void> _loadConfig() async {
     final storage = ConfigStorageService();
     await storage.init();
