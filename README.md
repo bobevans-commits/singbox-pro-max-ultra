@@ -38,8 +38,7 @@ lib/
 │   └── kernel_settings_screen.dart # 内核管理
 ├── services/                 # 服务层
 │   ├── proxy_service.dart   # 代理服务
-│   ├── kernel_manager.dart  # 内核管理器（下载/更新/切换）
-│   ├── kernel_executor.dart # 内核执行器（进程管理）
+│   ├── kernel_manager.dart  # 内核管理器（下载/更新/切换/执行）
 │   ├── config_storage_service.dart  # 配置存储
 │   └── subscription_service.dart    # 订阅服务
 ├── utils/                    # 工具类
