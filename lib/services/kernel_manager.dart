@@ -27,6 +27,11 @@ class KernelManager extends ChangeNotifier {
     return status == KernelStatus.installed || status == KernelStatus.running;
   }
 
+  void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+
   String getBinaryName(KernelType type) {
     final ext = Platform.isWindows ? '.exe' : '';
     switch (type) {
@@ -98,8 +103,47 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  Future<List<KernelReleaseInfo>> getReleaseList(KernelType type, {int count = 20}) async {
+    try {
+      final client = HttpClient();
+      final url = Uri.parse(
+        'https://api.github.com/repos/${type.repo}/releases?per_page=$count',
+      );
+      final request = await client.getUrl(url);
+      final response = await request.close();
+
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final list = jsonDecode(body) as List;
+        return list.map((item) {
+          final assets = (item['assets'] as List?) ?? [];
+          return KernelReleaseInfo(
+            tagName: item['tag_name'] as String,
+            name: item['name'] as String? ?? item['tag_name'] as String,
+            publishedAt: item['published_at'] as String? ?? '',
+            htmlUrl: item['html_url'] as String? ?? '',
+            assets: assets.map((a) => KernelAssetInfo(
+              name: a['name'] as String,
+              url: a['browser_download_url'] as String,
+              size: a['size'] as int? ?? 0,
+            )).toList(),
+          );
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      _error = 'Failed to fetch releases: $e';
+      return [];
+    }
+  }
+
+  double? _downloadProgress;
+
+  double? get downloadProgress => _downloadProgress;
+
   Future<void> downloadKernel(KernelType type, {String? version}) async {
     _statusMap[type] = KernelStatus.downloading;
+    _downloadProgress = 0;
     _error = null;
     notifyListeners();
 
@@ -126,11 +170,26 @@ class KernelManager extends ChangeNotifier {
         throw Exception('Download failed: HTTP ${response.statusCode}');
       }
 
+      final totalBytes = response.contentLength;
       final ext = url.endsWith('.zip') ? '.zip' : '.gz';
       final archivePath = '${dir.path}/${type.name}_download$ext';
       final file = File(archivePath);
-      await response.pipe(file.openWrite());
+      final sink = file.openWrite();
+      int receivedBytes = 0;
 
+      await for (final chunk in response) {
+        sink.add(chunk);
+        receivedBytes += chunk.length;
+        if (totalBytes > 0) {
+          _downloadProgress = receivedBytes / totalBytes;
+        } else {
+          _downloadProgress = null;
+        }
+        notifyListeners();
+      }
+      await sink.close();
+
+      _downloadProgress = null;
       _statusMap[type] = KernelStatus.installing;
       notifyListeners();
 
@@ -145,6 +204,7 @@ class KernelManager extends ChangeNotifier {
       );
       _error = null;
     } catch (e) {
+      _downloadProgress = null;
       _statusMap[type] = KernelStatus.error;
       _error = 'Download failed: $e';
     }

@@ -30,7 +30,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar.large(
+          SliverAppBar(
             title: const Text('订阅管理'),
           ),
           if (subService.isLoading)

@@ -41,7 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar.large(
+          SliverAppBar(
             title: const Text('仪表板'),
           ),
           SliverToBoxAdapter(

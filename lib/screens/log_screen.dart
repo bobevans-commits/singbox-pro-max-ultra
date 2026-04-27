@@ -69,7 +69,7 @@ class _LogScreenState extends State<LogScreen> {
       body: CustomScrollView(
         controller: _scrollController,
         slivers: [
-          SliverAppBar.large(
+          SliverAppBar(
             title: const Text('日志'),
             actions: [
               PopupMenuButton<LogLevel>(
