@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/config.dart';
@@ -26,6 +27,27 @@ class KernelManager extends ChangeNotifier {
     return status == KernelStatus.installed || status == KernelStatus.running;
   }
 
+  String getBinaryName(KernelType type) {
+    final ext = Platform.isWindows ? '.exe' : '';
+    switch (type) {
+      case KernelType.singbox:
+        return 'sing-box$ext';
+      case KernelType.mihomo:
+        return 'mihomo$ext';
+      case KernelType.v2ray:
+        return 'xray$ext';
+    }
+  }
+
+  Future<String> getBinaryPath(KernelType type) async {
+    final kernelInfo = _kernels[type];
+    if (kernelInfo != null && kernelInfo.binaryPath.isNotEmpty) {
+      return kernelInfo.binaryPath;
+    }
+    final dir = await getKernelDir();
+    return '${dir.path}/${getBinaryName(type)}';
+  }
+
   Future<void> init() async {
     for (final type in KernelType.values) {
       _statusMap[type] = KernelStatus.notInstalled;
@@ -36,8 +58,8 @@ class KernelManager extends ChangeNotifier {
 
   Future<void> _checkInstalled(KernelType type) async {
     try {
-      final dir = await _getKernelDir();
-      final binaryName = _getBinaryName(type);
+      final dir = await getKernelDir();
+      final binaryName = getBinaryName(type);
       final binaryFile = File('${dir.path}/$binaryName');
 
       if (await binaryFile.exists()) {
@@ -67,8 +89,7 @@ class KernelManager extends ChangeNotifier {
         final body = await response.transform(utf8.decoder).join();
         final json = jsonDecode(body) as Map<String, dynamic>;
         final tagName = json['tag_name'] as String;
-        final version = tagName.replaceFirst('v', '');
-        return version;
+        return tagName.replaceFirst('v', '');
       }
       return '';
     } catch (e) {
@@ -92,7 +113,7 @@ class KernelManager extends ChangeNotifier {
       final arch = _getCurrentArch();
       final url = KernelInfo.buildDownloadUrl(type, version, platform, arch);
 
-      final dir = await _getKernelDir();
+      final dir = await getKernelDir();
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
@@ -105,7 +126,8 @@ class KernelManager extends ChangeNotifier {
         throw Exception('Download failed: HTTP ${response.statusCode}');
       }
 
-      final archivePath = '${dir.path}/${type.name}_download';
+      final ext = url.endsWith('.zip') ? '.zip' : '.gz';
+      final archivePath = '${dir.path}/${type.name}_download$ext';
       final file = File(archivePath);
       await response.pipe(file.openWrite());
 
@@ -119,7 +141,7 @@ class KernelManager extends ChangeNotifier {
       _kernels[type] = KernelInfo(
         type: type,
         version: version,
-        binaryPath: '${dir.path}/${_getBinaryName(type)}',
+        binaryPath: '${dir.path}/${getBinaryName(type)}',
       );
       _error = null;
     } catch (e) {
@@ -146,7 +168,7 @@ class KernelManager extends ChangeNotifier {
 
     await file.delete();
 
-    final binaryPath = '$targetDir/${_getBinaryName(type)}';
+    final binaryPath = '$targetDir/${getBinaryName(type)}';
     final binaryFile = File(binaryPath);
     if (await binaryFile.exists() && !Platform.isWindows) {
       await Process.run('chmod', ['+x', binaryPath]);
@@ -154,14 +176,15 @@ class KernelManager extends ChangeNotifier {
   }
 
   Future<void> _extractZip(List<int> bytes, String targetDir) async {
-    final archive = Archive();
-    final zipData = ZipDecoder().decodeBytes(bytes);
-    for (final file in zipData) {
-      final path = '$targetDir/${file.name}';
-      if (file.isFile) {
-        await File(path).writeAsBytes(file.content);
+    final archive = ZipDecoder().decodeBytes(bytes);
+    for (final file in archive) {
+      final filename = file.name;
+      if (filename.endsWith('/')) {
+        await Directory('$targetDir/$filename').create(recursive: true);
       } else {
-        await Directory(path).create(recursive: true);
+        final outputFile = File('$targetDir/$filename');
+        await outputFile.parent.create(recursive: true);
+        await outputFile.writeAsBytes(file.content);
       }
     }
   }
@@ -171,9 +194,10 @@ class KernelManager extends ChangeNotifier {
     String targetDir,
     KernelType type,
   ) async {
-    final outputName = _getBinaryName(type);
+    final decompressed = GZipDecoder().decodeBytes(bytes);
+    final outputName = getBinaryName(type);
     final outputFile = File('$targetDir/$outputName');
-    await outputFile.writeAsBytes(bytes);
+    await outputFile.writeAsBytes(decompressed);
   }
 
   Future<void> deleteKernel(KernelType type) async {
@@ -184,8 +208,8 @@ class KernelManager extends ChangeNotifier {
     }
 
     try {
-      final dir = await _getKernelDir();
-      final binaryName = _getBinaryName(type);
+      final dir = await getKernelDir();
+      final binaryName = getBinaryName(type);
       final binaryFile = File('${dir.path}/$binaryName');
 
       if (await binaryFile.exists()) {
@@ -202,21 +226,9 @@ class KernelManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _getBinaryName(KernelType type) {
-    final ext = Platform.isWindows ? '.exe' : '';
-    switch (type) {
-      case KernelType.singbox:
-        return 'sing-box$ext';
-      case KernelType.mihomo:
-        return 'mihomo$ext';
-      case KernelType.v2ray:
-        return 'xray$ext';
-    }
-  }
-
   Future<String> _readInstalledVersion(KernelType type) async {
     try {
-      final dir = await _getKernelDir();
+      final dir = await getKernelDir();
       final versionFile = File('${dir.path}/${type.name}.version');
       if (await versionFile.exists()) {
         return await versionFile.readAsString();
@@ -225,7 +237,7 @@ class KernelManager extends ChangeNotifier {
     return 'unknown';
   }
 
-  Future<Directory> _getKernelDir() async {
+  Future<Directory> getKernelDir() async {
     final appDir = Directory.current;
     final kernelDir = Directory('${appDir.path}/assets/bin');
     if (!await kernelDir.exists()) {
@@ -243,21 +255,20 @@ class KernelManager extends ChangeNotifier {
   }
 
   String _getCurrentArch() {
+    final version = Platform.version.toLowerCase();
+    if (version.contains('arm64') || version.contains('aarch64')) return 'arm64';
+    if (Platform.isWindows) {
+      final procArch =
+          Platform.environment['PROCESSOR_ARCHITECTURE']?.toUpperCase() ?? '';
+      if (procArch.contains('ARM64')) return 'arm64';
+    }
+    if (Platform.isMacOS || Platform.isLinux) {
+      try {
+        final result = Process.runSync('uname', ['-m']);
+        final arch = result.stdout.toString().trim().toLowerCase();
+        if (arch.contains('arm64') || arch.contains('aarch64')) return 'arm64';
+      } catch (_) {}
+    }
     return 'amd64';
   }
-}
-
-class Archive {
-  List<ArchiveFile> decodeBytes(List<int> bytes) => [];
-}
-
-class ZipDecoder {
-  List<ArchiveFile> decodeBytes(List<int> bytes) => [];
-}
-
-class ArchiveFile {
-  final String name;
-  final bool isFile;
-  final List<int> content;
-  ArchiveFile(this.name, this.isFile, this.content);
 }

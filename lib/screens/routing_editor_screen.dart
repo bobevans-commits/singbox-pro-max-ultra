@@ -71,7 +71,7 @@ class _RoutingEditorScreenState extends State<RoutingEditorScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: type,
                   decoration: const InputDecoration(
                     labelText: '匹配类型',
                     border: OutlineInputBorder(),
@@ -91,7 +91,7 @@ class _RoutingEditorScreenState extends State<RoutingEditorScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: target,
+                  initialValue: target,
                   decoration: const InputDecoration(
                     labelText: '目标',
                     border: OutlineInputBorder(),

@@ -80,6 +80,18 @@ class SingboxInbound {
         'listen_port': listenPort,
         ...extra,
       };
+
+  factory SingboxInbound.fromJson(Map<String, dynamic> json) => SingboxInbound(
+        type: json['type'] as String,
+        tag: json['tag'] as String,
+        listenAddress: json['listen'] as String? ?? '127.0.0.1',
+        listenPort: json['listen_port'] as int? ?? 1080,
+        extra: Map.from(json)
+          ..remove('type')
+          ..remove('tag')
+          ..remove('listen')
+          ..remove('listen_port'),
+      );
 }
 
 class SingboxConfig {
@@ -164,18 +176,9 @@ class SingboxConfig {
       outbounds: [
         const SingboxOutbound(type: 'direct', tag: 'direct'),
         const SingboxOutbound(type: 'block', tag: 'block'),
-        const SingboxOutbound(
-          type: 'urltest',
-          tag: 'auto',
-          options: {
-            'outbounds': ['proxy'],
-            'url': 'https://www.gstatic.com/generate_204',
-            'interval': '5m',
-          },
-        ),
       ],
       route: const SingboxRoute(
-        finalOutbound: 'auto',
+        finalOutbound: 'direct',
       ),
     );
   }

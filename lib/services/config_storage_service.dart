@@ -17,6 +17,8 @@ class ConfigStorageService {
 
   SharedPreferences? _prefs;
 
+  bool get isInitialized => _prefs != null;
+
   SharedPreferences get prefs {
     if (_prefs == null) throw StateError('ConfigStorageService not initialized');
     return _prefs!;
@@ -24,6 +26,11 @@ class ConfigStorageService {
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+  }
+
+  void initSync() {
+    if (_prefs != null) return;
+    SharedPreferences.getInstance().then((prefs) => _prefs = prefs);
   }
 
   // ProxyConfig

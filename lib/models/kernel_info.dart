@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'config.dart';
 
 class KernelInfo {
@@ -67,17 +69,21 @@ class KernelInfo {
   }
 
   static String getPlatform() {
-    final os = const String.fromEnvironment('dart.io.platform');
-    if (os.contains('windows')) return 'windows';
-    if (os.contains('macos')) return 'darwin';
-    if (os.contains('linux')) return 'linux';
-    if (os.contains('android')) return 'android';
+    if (Platform.isWindows) return 'windows';
+    if (Platform.isMacOS) return 'darwin';
+    if (Platform.isLinux) return 'linux';
+    if (Platform.isAndroid) return 'android';
     return 'unknown';
   }
 
   static String getArch() {
-    const envArch = String.fromEnvironment('dart.io.arch');
-    if (envArch.contains('arm64') || envArch.contains('aarch64')) return 'arm64';
+    final version = Platform.version.toLowerCase();
+    if (version.contains('arm64') || version.contains('aarch64')) return 'arm64';
+    if (Platform.isWindows) {
+      final procArch =
+          Platform.environment['PROCESSOR_ARCHITECTURE']?.toUpperCase() ?? '';
+      if (procArch.contains('ARM64')) return 'arm64';
+    }
     return 'amd64';
   }
 

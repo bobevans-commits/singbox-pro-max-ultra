@@ -166,9 +166,11 @@ class SubscriptionService extends ChangeNotifier {
     try {
       final parsed = Uri.parse(uri);
       final params = parsed.queryParameters;
+      final name = params['name'] ?? parsed.fragment;
+      final effectiveName = name.isEmpty ? 'VLESS' : name;
       return NodeConfig(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: params['name'] ?? parsed.fragment ?? 'VLESS',
+        name: effectiveName,
         protocol: ProxyProtocol.vless,
         address: parsed.host,
         port: parsed.port,
@@ -189,9 +191,11 @@ class SubscriptionService extends ChangeNotifier {
     try {
       final parsed = Uri.parse(uri);
       final params = parsed.queryParameters;
+      final name = params['name'] ?? parsed.fragment;
+      final effectiveName = name.isEmpty ? 'Trojan' : name;
       return NodeConfig(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: params['name'] ?? parsed.fragment ?? 'Trojan',
+        name: effectiveName,
         protocol: ProxyProtocol.trojan,
         address: parsed.host,
         port: parsed.port,
@@ -246,9 +250,11 @@ class SubscriptionService extends ChangeNotifier {
     try {
       final parsed = Uri.parse(uri);
       final params = parsed.queryParameters;
+      final name = params['name'] ?? parsed.fragment;
+      final effectiveName = name.isEmpty ? 'Hysteria2' : name;
       return NodeConfig(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: params['name'] ?? parsed.fragment ?? 'Hysteria2',
+        name: effectiveName,
         protocol: ProxyProtocol.hysteria2,
         address: parsed.host,
         port: parsed.port,

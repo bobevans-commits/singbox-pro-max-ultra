@@ -1,0 +1,227 @@
+name: Multi-Platform Build
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to build (comma-separated: windows,macos,linux,android)'
+        required: false
+        default: 'windows,macos,linux,android'
+
+env:
+  SINGBOX_VERSION: '1.10.0'
+  FLUTTER_VERSION: '3.x'
+
+jobs:
+  build-windows:
+    if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'windows')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download sing-box kernel (Windows)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          mkdir -p assets/bin
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-windows-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile sing-box.zip
+          Expand-Archive -Path sing-box.zip -DestinationPath sing-box-temp
+          Copy-Item "sing-box-temp/sing-box-${{ env.SINGBOX_VERSION }}-windows-amd64/sing-box.exe" -Destination "assets/bin/sing-box.exe"
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "singbox-pro-max-ultra-windows-amd64.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: singbox-pro-max-ultra-windows-amd64.zip
+
+  build-macos:
+    if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'macos')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download sing-box kernel (macOS)
+        continue-on-error: true
+        run: |
+          mkdir -p assets/bin
+          curl -L -o sing-box-amd64.zip "https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-darwin-amd64.zip"
+          curl -L -o sing-box-arm64.zip "https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-darwin-arm64.zip"
+          unzip -o sing-box-amd64.zip -d sing-box-amd64
+          unzip -o sing-box-arm64.zip -d sing-box-arm64
+          cp "sing-box-amd64/sing-box-${{ env.SINGBOX_VERSION }}-darwin-amd64/sing-box" assets/bin/sing-box-amd64 || true
+          cp "sing-box-arm64/sing-box-${{ env.SINGBOX_VERSION }}-darwin-arm64/sing-box" assets/bin/sing-box-arm64 || true
+          chmod +x assets/bin/sing-box-* || true
+
+      - name: Build macOS
+        run: flutter build macos --release
+
+      - name: Package macOS
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r -9 "${{ github.workspace }}/singbox-pro-max-ultra-macos.zip" "*.app"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: singbox-pro-max-ultra-macos.zip
+
+  build-linux:
+    if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'linux')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev liblzma-dev libstdc++-12-dev ninja-build libcurl4-openssl-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download sing-box kernel (Linux)
+        continue-on-error: true
+        run: |
+          mkdir -p assets/bin
+          curl -L -o sing-box.zip "https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-linux-amd64.zip"
+          unzip -o sing-box.zip -d sing-box-temp
+          cp "sing-box-temp/sing-box-${{ env.SINGBOX_VERSION }}-linux-amd64/sing-box" assets/bin/sing-box
+          chmod +x assets/bin/sing-box
+
+      - name: Build Linux
+        run: flutter build linux --release
+
+      - name: Package Linux
+        run: |
+          cd build/linux/x64/release/bundle
+          tar czf "${{ github.workspace }}/singbox-pro-max-ultra-linux-amd64.tar.gz" .
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: singbox-pro-max-ultra-linux-amd64.tar.gz
+
+  build-android:
+    if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'android')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download sing-box kernel (Android)
+        continue-on-error: true
+        run: |
+          chmod +x scripts/download_kernels.sh
+          mkdir -p assets/bin
+          bash scripts/download_kernels.sh ./assets/bin android arm64
+          bash scripts/download_kernels.sh ./assets/bin android amd64
+
+      - name: Setup Android signing
+        if: ${{ env.ANDROID_KEYSTORE != '' }}
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo "$ANDROID_KEYSTORE" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Build APK (split per ABI)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Build AAB
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: flutter build appbundle --release
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/*.apk
+
+      - name: Upload AAB artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: build/app/outputs/bundle/release/*.aab
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-macos, build-linux, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            windows-build/*.zip
+            macos-build/*.zip
+            linux-build/*.tar.gz
+            android-apk/*.apk
+            android-aab/*.aab
+          generate_release_notes: true

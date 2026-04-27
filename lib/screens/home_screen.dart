@@ -78,6 +78,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
                   _ConnectionInfo(proxyService: proxyService),
+                  const SizedBox(height: 24),
+                  Text(
+                    '延迟测试',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  _LatencyCard(proxyService: proxyService),
                 ],
               ),
             ),
@@ -200,6 +207,66 @@ class _TrafficStats extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LatencyCard extends StatelessWidget {
+  final ProxyService proxyService;
+
+  const _LatencyCard({required this.proxyService});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final latency = proxyService.latencyMs;
+    final activeNode = proxyService.activeNode;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(
+              Icons.speed,
+              color: latency != null && latency > 0
+                  ? Colors.green
+                  : latency == -1
+                      ? Colors.red
+                      : theme.colorScheme.outline,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('延迟', style: theme.textTheme.bodyMedium),
+                  Text(
+                    latency == null
+                        ? '未测试'
+                        : latency == -1
+                            ? '超时'
+                            : '$latency ms',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: latency != null && latency > 0
+                          ? Colors.green
+                          : latency == -1
+                              ? Colors.red
+                              : null,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            FilledButton.tonal(
+              onPressed: activeNode != null
+                  ? () => proxyService.testLatency(activeNode)
+                  : null,
+              child: const Text('测试'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

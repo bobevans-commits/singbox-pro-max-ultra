@@ -1,5 +1,5 @@
-name: multi_client
-description: "Flutter multi-kernel proxy client"
+name: proxcore
+description: "ProxCore - Multi-kernel proxy client"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -14,20 +14,15 @@ dependencies:
   shared_preferences: ^2.3.4
   path_provider: ^2.1.5
   dio: ^5.7.0
-  json_annotation: ^4.9.0
   archive: ^4.0.2
   url_launcher: ^6.3.1
   uuid: ^4.5.1
-  intl: ^0.20.1
-  file_picker: ^8.1.7
   share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  build_runner: ^2.4.14
-  json_serializable: ^6.9.4
 
 flutter:
   uses-material-design: true

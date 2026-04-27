@@ -14,12 +14,23 @@ class ConfigAdapter {
       httpPort: proxyConfig.httpPort,
     );
 
-    final outbounds = <SingboxOutbound>[...config.outbounds];
+    final outbounds = <SingboxOutbound>[];
 
     if (activeNode != null) {
       final proxyOutbound = _nodeToSingboxOutbound(activeNode);
-      outbounds.insert(0, proxyOutbound);
+      outbounds.add(proxyOutbound);
+      outbounds.add(const SingboxOutbound(
+        type: 'urltest',
+        tag: 'auto',
+        options: {
+          'outbounds': ['proxy'],
+          'url': 'https://www.gstatic.com/generate_204',
+          'interval': '5m',
+        },
+      ));
     }
+
+    outbounds.addAll(config.outbounds);
 
     final rules = routingRules
         .where((r) => r.enabled)
@@ -30,6 +41,13 @@ class ConfigAdapter {
             ))
         .toList();
 
+    final clashApi = {
+      'clash_api': {
+        'external_controller': '127.0.0.1:9090',
+        'secret': '',
+      },
+    };
+
     return SingboxConfig(
       inbounds: config.inbounds,
       outbounds: outbounds,
@@ -39,17 +57,14 @@ class ConfigAdapter {
       ),
       experimental: proxyConfig.tunEnabled
           ? {
-              'clash_api': {
-                'external_controller': '127.0.0.1:9090',
-                'secret': '',
+              ...clashApi,
+              'tun': {
+                'stack': 'system',
+                'auto_route': true,
+                'strict_route': true,
               },
             }
-          : {
-              'clash_api': {
-                'external_controller': '127.0.0.1:9090',
-                'secret': '',
-              },
-            },
+          : clashApi,
     ).toJson();
   }
 
@@ -157,7 +172,7 @@ class ConfigAdapter {
           options: {
             'server': node.address,
             'server_port': node.port,
-            'auth': extra['auth'] ?? '',
+            'auth': extra['auth'] ?? extra['password'] ?? '',
             'tls': {
               'enabled': true,
               'server_name': extra['sni'] ?? node.address,
@@ -192,10 +207,18 @@ class ConfigAdapter {
             'server_port': node.port,
             'username': extra['username'] ?? '',
             'password': extra['password'] ?? '',
+            'tls': {
+              'enabled': true,
+              'server_name': extra['sni'] ?? node.address,
+            },
           },
         );
 
       case ProxyProtocol.wireguard:
+        final localAddress = extra['localAddress'];
+        final localAddressList = localAddress is String
+            ? [localAddress]
+            : (localAddress as List?)?.cast<String>() ?? [];
         return SingboxOutbound(
           type: 'wireguard',
           tag: 'proxy',
@@ -204,7 +227,7 @@ class ConfigAdapter {
             'server_port': node.port,
             'private_key': extra['privateKey'] ?? '',
             'peer_public_key': extra['peerPublicKey'] ?? '',
-            'local_address': extra['localAddress'] ?? [],
+            'local_address': localAddressList,
           },
         );
     }

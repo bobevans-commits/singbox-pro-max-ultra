@@ -68,6 +68,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       case ProxyProtocol.shadowsocks:
         return ['method', 'password'];
       case ProxyProtocol.hysteria:
+        return ['auth', 'sni'];
       case ProxyProtocol.hysteria2:
         return ['password', 'sni'];
       case ProxyProtocol.tuic:
@@ -172,7 +173,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                     Text('基本配置', style: theme.textTheme.titleMedium),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<ProxyProtocol>(
-                      value: _selectedProtocol,
+                      initialValue: _selectedProtocol,
                       decoration: const InputDecoration(
                         labelText: '协议',
                         border: OutlineInputBorder(),

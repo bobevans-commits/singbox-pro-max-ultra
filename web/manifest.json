@@ -1,11 +1,11 @@
 {
-    "name": "my_app_flutter",
-    "short_name": "my_app_flutter",
+    "name": "ProxCore",
+    "short_name": "ProxCore",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#6750A4",
+    "theme_color": "#6750A4",
+    "description": "ProxCore - Multi-kernel proxy client",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -43,10 +43,27 @@ class _LogScreenState extends State<LogScreen> {
     super.dispose();
   }
 
+  List<String> _filterLogs(List<String> logs) {
+    if (_filterLevel == LogLevel.all) return logs;
+    return logs.where((log) {
+      switch (_filterLevel) {
+        case LogLevel.error:
+          return log.contains('[ERROR]');
+        case LogLevel.warning:
+          return log.contains('[WARN]');
+        case LogLevel.info:
+          return log.contains('[INFO]');
+        default:
+          return true;
+      }
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final proxyService = context.watch<ProxyService>();
     final theme = Theme.of(context);
+    final filteredLogs = _filterLogs(proxyService.logs);
 
     return Scaffold(
       body: CustomScrollView(
@@ -78,9 +95,7 @@ class _LogScreenState extends State<LogScreen> {
               IconButton(
                 onPressed: () {
                   final logs = proxyService.logs.join('\n');
-                  SharePlus.instance.share(
-                    ShareParams(text: logs),
-                  );
+                  Share.share(logs);
                 },
                 icon: const Icon(Icons.share),
                 tooltip: '导出日志',
@@ -102,7 +117,7 @@ class _LogScreenState extends State<LogScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    '${proxyService.logs.length} 条日志',
+                    '${filteredLogs.length} 条日志',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.outline,
                     ),
@@ -115,22 +130,6 @@ class _LogScreenState extends State<LogScreen> {
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (context, index) {
-                final logs = proxyService.logs;
-                final filteredLogs = _filterLevel == LogLevel.all
-                    ? logs
-                    : logs.where((log) {
-                        switch (_filterLevel) {
-                          case LogLevel.error:
-                            return log.contains('[ERROR]');
-                          case LogLevel.warning:
-                            return log.contains('[WARN]');
-                          case LogLevel.info:
-                            return log.contains('[INFO]');
-                          default:
-                            return true;
-                        }
-                      }).toList();
-
                 if (index >= filteredLogs.length) return null;
 
                 final log = filteredLogs[index];
@@ -165,7 +164,7 @@ class _LogScreenState extends State<LogScreen> {
                   ),
                 );
               },
-              childCount: proxyService.logs.length,
+              childCount: filteredLogs.length,
             ),
           ),
         ],

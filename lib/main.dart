@@ -1,122 +1,491 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-void main() {
-  runApp(const MyApp());
+import 'models/config.dart';
+import 'screens/home_screen.dart';
+import 'screens/subscriptions_screen.dart';
+import 'screens/node_editor_screen.dart';
+import 'screens/routing_editor_screen.dart';
+import 'screens/log_screen.dart';
+import 'screens/kernel_settings_screen.dart';
+import 'services/config_storage_service.dart';
+import 'services/kernel_manager.dart';
+import 'services/proxy_service.dart';
+import 'services/subscription_service.dart';
+import 'utils/app_utils.dart';
+import 'widgets/proxy_link_importer.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final configStorage = ConfigStorageService();
+  await configStorage.init();
+
+  final kernelManager = KernelManager();
+  await kernelManager.init();
+
+  final proxyService = ProxyService(kernelManager);
+  final subscriptionService = SubscriptionService(configStorage);
+
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: kernelManager),
+        ChangeNotifierProvider.value(value: proxyService),
+        ChangeNotifierProvider.value(value: subscriptionService),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
+  static void toggleThemeOf(BuildContext context) {
+    final state = context.findAncestorStateOfType<_MyAppState>();
+    state?.toggleTheme();
   }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<MyApp> createState() => _MyAppState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MyAppState extends State<MyApp> {
+  ThemeMode _themeMode = ThemeMode.system;
 
-  void _incrementCounter() {
+  void setThemeMode(ThemeMode mode) {
+    setState(() => _themeMode = mode);
+  }
+
+  void toggleTheme() {
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _themeMode =
+          _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+    return MaterialApp(
+      title: 'ProxCore',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6750A4),
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6750A4),
+          brightness: Brightness.dark,
+        ),
+        useMaterial3: true,
+      ),
+      themeMode: _themeMode,
+      home: const MainNavigation(),
+    );
+  }
+}
+
+class MainNavigation extends StatefulWidget {
+  const MainNavigation({super.key});
+
+  @override
+  State<MainNavigation> createState() => _MainNavigationState();
+}
+
+class _MainNavigationState extends State<MainNavigation> {
+  int _currentIndex = 0;
+  final List<NodeConfig> _nodes = [];
+  List<RoutingRule> _routingRules = [];
+  ConfigStorageService? _storage;
+
+  final _screens = const [
+    HomeScreen(),
+    SubscriptionsScreen(),
+    LogScreen(),
+    KernelSettingsScreen(),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  ConfigStorageService _getStorage() {
+    _storage ??= ConfigStorageService()..initSync();
+    return _storage!;
+  }
+
+  Future<void> _loadConfig() async {
+    final storage = ConfigStorageService();
+    await storage.init();
+    _storage = storage;
+    setState(() {
+      _nodes.addAll(storage.loadNodes());
+      _routingRules = storage.loadRoutingRules();
+    });
+  }
+
+  Future<void> _saveNodes() async {
+    final storage = _storage ??= ConfigStorageService();
+    if (!storage.isInitialized) await storage.init();
+    await storage.saveNodes(_nodes);
+  }
+
+  Future<void> _saveRoutingRules() async {
+    final storage = _storage ??= ConfigStorageService();
+    if (!storage.isInitialized) await storage.init();
+    await storage.saveRoutingRules(_routingRules);
+  }
+
+  void _addNode(NodeConfig node) {
+    setState(() => _nodes.add(node));
+    _saveNodes();
+  }
+
+  void _updateNode(NodeConfig node) {
+    final index = _nodes.indexWhere((n) => n.id == node.id);
+    if (index >= 0) {
+      setState(() => _nodes[index] = node);
+      _saveNodes();
+    }
+  }
+
+  void _deleteNode(String id) {
+    setState(() => _nodes.removeWhere((n) => n.id == id));
+    _saveNodes();
+  }
+
+  void _showNodeList() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.3,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (ctx, controller) => _NodeListSheet(
+          nodes: _nodes,
+          scrollController: controller,
+          onAdd: () {
+            Navigator.pop(ctx);
+            _showAddNodeOptions();
+          },
+          onEdit: (node) {
+            Navigator.pop(ctx);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NodeEditorScreen(
+                  node: node,
+                  onSave: _updateNode,
+                ),
+              ),
+            );
+          },
+          onDelete: _deleteNode,
+          onConnect: (node) {
+            Navigator.pop(ctx);
+            context.read<ProxyService>().start(node);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _showAddNodeOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('手动添加'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NodeEditorScreen(onSave: _addNode),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.link),
+              title: const Text('导入链接'),
+              onTap: () {
+                Navigator.pop(ctx);
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (_) => ProxyLinkImporter(onImport: _addNode),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.rss_feed),
+              title: const Text('从订阅导入'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _currentIndex = 1);
+              },
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: _screens[_currentIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) {
+          setState(() => _currentIndex = index);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: '仪表板',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.rss_feed_outlined),
+            selectedIcon: Icon(Icons.rss_feed),
+            label: '订阅',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.article_outlined),
+            selectedIcon: Icon(Icons.article),
+            label: '日志',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.dns_outlined),
+            selectedIcon: Icon(Icons.dns),
+            label: '内核',
+          ),
+        ],
       ),
+      drawer: _AppDrawer(
+        onToggleTheme: () => MyApp.toggleThemeOf(context),
+        onOpenRouting: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RoutingEditorScreen(
+                rules: _routingRules,
+                onSave: (rules) {
+                  setState(() => _routingRules = rules);
+                  _saveRoutingRules();
+                },
+              ),
+            ),
+          );
+        },
+        onOpenNodeList: _showNodeList,
+        nodes: _nodes,
+      ),
+      floatingActionButton: _currentIndex == 0
+          ? FloatingActionButton(
+              onPressed: _showAddNodeOptions,
+              child: const Icon(Icons.add),
+            )
+          : null,
+    );
+  }
+}
+
+class _AppDrawer extends StatelessWidget {
+  final VoidCallback onToggleTheme;
+  final VoidCallback onOpenRouting;
+  final VoidCallback onOpenNodeList;
+  final List<NodeConfig> nodes;
+
+  const _AppDrawer({
+    required this.onToggleTheme,
+    required this.onOpenRouting,
+    required this.onOpenNodeList,
+    required this.nodes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final proxyService = context.watch<ProxyService>();
+
+    return NavigationDrawer(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(28, 16, 16, 8),
+          child: Text(
+            'ProxCore',
+            style: theme.textTheme.titleMedium,
+          ),
+        ),
+        const Divider(),
+        ListTile(
+          leading: const Icon(Icons.list),
+          title: Text('节点列表 (${nodes.length})'),
+          subtitle: proxyService.activeNode != null
+              ? Text(
+                  '当前: ${proxyService.activeNode!.name}',
+                  style: const TextStyle(fontSize: 12),
+                )
+              : null,
+          onTap: () {
+            Navigator.pop(context);
+            onOpenNodeList();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.route),
+          title: const Text('路由规则'),
+          onTap: () {
+            Navigator.pop(context);
+            onOpenRouting();
+          },
+        ),
+        const Divider(),
+        ListTile(
+          leading: const Icon(Icons.dark_mode),
+          title: const Text('切换主题'),
+          onTap: () {
+            Navigator.pop(context);
+            onToggleTheme();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('关于'),
+          onTap: () {
+            Navigator.pop(context);
+            showAboutDialog(
+              context: context,
+              applicationName: 'ProxCore',
+              applicationVersion: '1.0.0',
+              applicationIcon: const Icon(Icons.vpn_lock, size: 48),
+              children: [
+                const Text('多内核代理客户端'),
+                const SizedBox(height: 8),
+                const Text('支持 sing-box / mihomo / v2ray'),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _NodeListSheet extends StatelessWidget {
+  final List<NodeConfig> nodes;
+  final ScrollController scrollController;
+  final VoidCallback onAdd;
+  final void Function(NodeConfig) onEdit;
+  final void Function(String) onDelete;
+  final void Function(NodeConfig) onConnect;
+
+  const _NodeListSheet({
+    required this.nodes,
+    required this.scrollController,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onConnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Text('节点列表', style: theme.textTheme.titleLarge),
+              const Spacer(),
+              FilledButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('添加'),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: nodes.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.cloud_off,
+                          size: 64, color: theme.colorScheme.outline),
+                      const SizedBox(height: 16),
+                      Text(
+                        '暂无节点',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  controller: scrollController,
+                  itemCount: nodes.length,
+                  itemBuilder: (context, index) {
+                    final node = nodes[index];
+                    return ListTile(
+                      leading: Text(
+                        AppUtils.protocolIcon(node.protocol),
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                      title: Text(node.name),
+                      subtitle: Text(
+                        '${node.protocol.label} | ${node.address}:${node.port}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      trailing: PopupMenuButton(
+                        itemBuilder: (ctx) => [
+                          const PopupMenuItem(
+                              value: 'connect', child: Text('连接')),
+                          const PopupMenuItem(
+                              value: 'edit', child: Text('编辑')),
+                          const PopupMenuItem(
+                              value: 'delete', child: Text('删除')),
+                        ],
+                        onSelected: (value) {
+                          switch (value) {
+                            case 'connect':
+                              onConnect(node);
+                            case 'edit':
+                              onEdit(node);
+                            case 'delete':
+                              onDelete(node.id);
+                          }
+                        },
+                      ),
+                      onTap: () => onConnect(node),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }

@@ -1,0 +1,87 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ['v*']
+    paths:
+      - 'lib/**'
+      - 'windows/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/windows-build.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version'
+        required: false
+        default: 'dev'
+
+env:
+  SINGBOX_VERSION: '1.10.0'
+  FLUTTER_VERSION: '3.x'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Download sing-box kernel (Windows)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path assets/bin
+          $url = "https://github.com/SagerNet/sing-box/releases/download/v${{ env.SINGBOX_VERSION }}/sing-box-${{ env.SINGBOX_VERSION }}-windows-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile sing-box.zip
+          Expand-Archive -Path sing-box.zip -DestinationPath sing-box-temp
+          Copy-Item "sing-box-temp/sing-box-${{ env.SINGBOX_VERSION }}-windows-amd64/sing-box.exe" -Destination "assets/bin/sing-box.exe"
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-${{ github.run_number }}
+          path: build\windows\x64\runner\Release\*
+
+  package-zip:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build-${{ github.run_number }}
+          path: release
+
+      - name: Create ZIP package
+        shell: pwsh
+        run: |
+          $zipName = "singbox-pro-max-ultra-windows-amd64.zip"
+          Compress-Archive -Path "release\*" -DestinationPath $zipName
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: singbox-pro-max-ultra-windows-amd64.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: singbox-pro-max-ultra-windows-amd64.zip
+          generate_release_notes: true

@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import '../models/config.dart';
-import '../models/singbox_config.dart';
 
 class AppUtils {
   AppUtils._();

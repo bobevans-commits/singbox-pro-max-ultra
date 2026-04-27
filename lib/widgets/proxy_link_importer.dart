@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../models/config.dart';
@@ -79,36 +81,160 @@ class _ProxyLinkImporterState extends State<ProxyLinkImporter> {
         return _parseUriBased(uri, protocol);
       case ProxyProtocol.shadowsocks:
         return _parseShadowsocks(uri);
-      default:
-        throw UnimplementedError('Protocol $protocol parsing not implemented');
+      case ProxyProtocol.hysteria:
+        return _parseHysteria(uri);
+      case ProxyProtocol.tuic:
+        return _parseTuic(uri);
+      case ProxyProtocol.naive:
+      case ProxyProtocol.wireguard:
+        throw UnimplementedError(
+          '${protocol.label} protocol link parsing is not supported yet. '
+          'Please add the node manually.',
+        );
     }
   }
 
   NodeConfig _parseVmess(String uri) {
-    throw UnimplementedError('Use SubscriptionService for VMess parsing');
+    try {
+      final encoded = uri.replaceFirst('vmess://', '');
+      final decoded = utf8.decode(base64Decode(encoded));
+      final json = jsonDecode(decoded) as Map<String, dynamic>;
+      return NodeConfig(
+        id: json['id']?.toString() ??
+            DateTime.now().millisecondsSinceEpoch.toString(),
+        name: json['ps'] as String? ?? 'VMess',
+        protocol: ProxyProtocol.vmess,
+        address: json['add'] as String? ?? '',
+        port: int.tryParse(json['port']?.toString() ?? '0') ?? 0,
+        extra: {
+          'uuid': json['id'],
+          'alterId': json['aid'] ?? 0,
+          'security': json['scy'] ?? 'auto',
+          'network': json['net'] ?? 'tcp',
+          'wsPath': json['path'],
+          'wsHost': json['host'],
+        },
+      );
+    } catch (e) {
+      throw FormatException('VMess 链接解析失败: $e');
+    }
   }
 
   NodeConfig _parseUriBased(String uri, ProxyProtocol protocol) {
     final parsed = Uri.parse(uri);
     final params = parsed.queryParameters;
+    final name = params['name'] ?? parsed.fragment;
+    final effectiveName = name.isEmpty ? protocol.label : name;
+
+    Map<String, dynamic> extra;
+    switch (protocol) {
+      case ProxyProtocol.vless:
+        extra = {
+          'uuid': parsed.userInfo,
+          'flow': params['flow'],
+          'security': params['security'] ?? 'none',
+          'type': params['type'] ?? 'tcp',
+          'sni': params['sni'],
+        };
+      case ProxyProtocol.trojan:
+        extra = {
+          'password': parsed.userInfo,
+          'sni': params['sni'],
+          'type': params['type'] ?? 'tcp',
+        };
+      case ProxyProtocol.hysteria2:
+        extra = {
+          'password': parsed.userInfo,
+          'sni': params['sni'],
+          'insecure': params['insecure'] == '1',
+        };
+      default:
+        extra = {'rawUri': uri};
+    }
+
     return NodeConfig(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: params['name'] ?? parsed.fragment ?? protocol.label,
+      name: effectiveName,
       protocol: protocol,
       address: parsed.host.isEmpty ? '0.0.0.0' : parsed.host,
       port: parsed.port == 0 ? 443 : parsed.port,
-      extra: {'rawUri': uri},
+      extra: extra,
     );
   }
 
   NodeConfig _parseShadowsocks(String uri) {
+    try {
+      final content = uri.replaceFirst('ss://', '');
+      final hashIndex = content.indexOf('#');
+      final name = hashIndex >= 0
+          ? Uri.decodeComponent(content.substring(hashIndex + 1))
+          : 'Shadowsocks';
+      final body = hashIndex >= 0 ? content.substring(0, hashIndex) : content;
+
+      final atIndex = body.indexOf('@');
+      if (atIndex < 0) throw const FormatException('Invalid SS URI format');
+
+      final methodAndPassword =
+          utf8.decode(base64Decode(body.substring(0, atIndex)));
+      final colonIndex = methodAndPassword.indexOf(':');
+      final method = methodAndPassword.substring(0, colonIndex);
+      final password = methodAndPassword.substring(colonIndex + 1);
+
+      final serverPart = body.substring(atIndex + 1);
+      final colonPos = serverPart.lastIndexOf(':');
+
+      return NodeConfig(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: name,
+        protocol: ProxyProtocol.shadowsocks,
+        address: serverPart.substring(0, colonPos),
+        port: int.parse(serverPart.substring(colonPos + 1)),
+        extra: {
+          'method': method,
+          'password': password,
+        },
+      );
+    } catch (e) {
+      throw FormatException('Shadowsocks 链接解析失败: $e');
+    }
+  }
+
+  NodeConfig _parseHysteria(String uri) {
+    final parsed = Uri.parse(uri);
+    final params = parsed.queryParameters;
+    final name = params['name'] ?? parsed.fragment;
+    final effectiveName = name.isEmpty ? 'Hysteria' : name;
     return NodeConfig(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Shadowsocks',
-      protocol: ProxyProtocol.shadowsocks,
-      address: '0.0.0.0',
-      port: 443,
-      extra: {'rawUri': uri},
+      name: effectiveName,
+      protocol: ProxyProtocol.hysteria,
+      address: parsed.host.isEmpty ? '0.0.0.0' : parsed.host,
+      port: parsed.port == 0 ? 443 : parsed.port,
+      extra: {
+        'auth': params['auth'] ?? parsed.userInfo,
+        'sni': params['sni'],
+        'insecure': params['insecure'] == '1',
+      },
+    );
+  }
+
+  NodeConfig _parseTuic(String uri) {
+    final parsed = Uri.parse(uri);
+    final params = parsed.queryParameters;
+    final name = params['name'] ?? parsed.fragment;
+    final effectiveName = name.isEmpty ? 'TUIC' : name;
+    final userInfo = parsed.userInfo.split(':');
+    return NodeConfig(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: effectiveName,
+      protocol: ProxyProtocol.tuic,
+      address: parsed.host.isEmpty ? '0.0.0.0' : parsed.host,
+      port: parsed.port == 0 ? 443 : parsed.port,
+      extra: {
+        'uuid': userInfo.isNotEmpty ? userInfo[0] : '',
+        'password': userInfo.length > 1 ? userInfo[1] : '',
+        'sni': params['sni'],
+      },
     );
   }
 
@@ -136,7 +262,8 @@ class _ProxyLinkImporterState extends State<ProxyLinkImporter> {
             controller: _controller,
             maxLines: 4,
             decoration: InputDecoration(
-              hintText: '粘贴代理链接 (vmess://, vless://, trojan://, ss://, ...)',
+              hintText:
+                  '粘贴代理链接 (vmess://, vless://, trojan://, ss://, hy2://, ...)',
               border: const OutlineInputBorder(),
               suffixIcon: _detectedProtocol != null
                   ? Padding(

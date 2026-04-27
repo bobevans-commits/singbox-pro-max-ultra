@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
-import '../models/config.dart';
 import '../services/config_storage_service.dart';
 import '../services/subscription_service.dart';
 import '../utils/app_utils.dart';
