@@ -4,6 +4,50 @@ import '../models/singbox_config.dart';
 class ConfigAdapter {
   ConfigAdapter._();
 
+  static Map<String, dynamic> _buildDnsConfig(ProxyConfig proxyConfig) {
+    final dns = proxyConfig.dnsConfig;
+    if (dns.mode == DnsMode.system) return {};
+
+    final servers = <Map<String, dynamic>>[];
+    final fallback = <Map<String, dynamic>>[];
+
+    switch (dns.mode) {
+      case DnsMode.system:
+        break;
+      case DnsMode.custom:
+        for (final s in dns.servers) {
+          servers.add({'address': s, 'tag': 'remote_${s.replaceAll('.', '_')}'});
+        }
+        for (final s in dns.fallbackServers) {
+          fallback.add({'address': s, 'tag': 'local_${s.replaceAll('.', '_')}'});
+        }
+      case DnsMode.doh:
+        servers.add({'address': dns.dohUrl, 'tag': 'remote_doh'});
+        for (final s in dns.fallbackServers) {
+          fallback.add({'address': s, 'tag': 'local_${s.replaceAll('.', '_')}'});
+        }
+      case DnsMode.dot:
+        servers.add({'address': 'tls://${dns.dotServer}', 'tag': 'remote_dot'});
+        for (final s in dns.fallbackServers) {
+          fallback.add({'address': s, 'tag': 'local_${s.replaceAll('.', '_')}'});
+        }
+    }
+
+    return {
+      'dns': {
+        'servers': [...servers, ...fallback],
+        'rules': [
+          {
+            'outbound': 'any',
+            'server': fallback.isNotEmpty ? fallback.first['tag'] : 'local',
+          },
+        ],
+        'strategy': dns.remoteResolve ? 'prefer_ipv4' : 'ipv4_only',
+        'independent_cache': true,
+      },
+    };
+  }
+
   static Map<String, dynamic> toSingboxConfig(
     ProxyConfig proxyConfig,
     NodeConfig? activeNode,
@@ -32,40 +76,89 @@ class ConfigAdapter {
 
     outbounds.addAll(config.outbounds);
 
-    final rules = routingRules
-        .where((r) => r.enabled)
-        .map((r) => SingboxRouteRule(
-              outbound: r.target,
-              domain: r.type == 'domain' ? [r.match] : [],
-              ip: r.type == 'ip' ? [r.match] : [],
-            ))
-        .toList();
+    final rules = <SingboxRouteRule>[];
+
+    if (proxyConfig.adBlocking) {
+      rules.add(const SingboxRouteRule(
+        outbound: 'block',
+        domain: [],
+        ip: [],
+        geosite: ['category-ads-all'],
+      ));
+    }
+
+    for (final r in routingRules.where((r) => r.enabled)) {
+      rules.add(SingboxRouteRule(
+        outbound: r.target,
+        domain: r.type == 'domain' ? [r.match] : [],
+        domainKeyword: r.type == 'domain_keyword' ? [r.match] : [],
+        domainSuffix: r.type == 'domain_suffix' ? [r.match] : [],
+        ip: r.type == 'ip_cidr' ? [r.match] : [],
+        geoip: r.type == 'geoip' ? [r.match] : [],
+        geosite: r.type == 'geosite' ? [r.match] : [],
+        process: r.type == 'process' ? [r.match] : [],
+        protocol: r.type == 'protocol' ? [r.match] : [],
+        port: r.type == 'port' ? [int.tryParse(r.match) ?? 0] : [],
+      ));
+    }
 
     final clashApi = {
       'clash_api': {
-        'external_controller': '127.0.0.1:9090',
+        'external_controller': proxyConfig.lanSharing
+            ? '0.0.0.0:9090'
+            : '127.0.0.1:9090',
         'secret': '',
       },
     };
 
-    return SingboxConfig(
-      inbounds: config.inbounds,
+    final experimental = <String, dynamic>{...clashApi};
+    if (proxyConfig.tunEnabled) {
+      experimental['tun'] = {
+        'stack': 'system',
+        'auto_route': true,
+        'strict_route': true,
+      };
+    }
+
+    final listenAddr =
+        proxyConfig.lanSharing ? '0.0.0.0' : proxyConfig.localAddress;
+
+    final result = SingboxConfig(
+      inbounds: [
+        SingboxInbound(
+          type: 'socks',
+          tag: 'socks-in',
+          listenAddress: listenAddr,
+          listenPort: proxyConfig.socksPort,
+        ),
+        SingboxInbound(
+          type: 'http',
+          tag: 'http-in',
+          listenAddress: listenAddr,
+          listenPort: proxyConfig.httpPort,
+        ),
+        if (proxyConfig.tunEnabled)
+          const SingboxInbound(
+            type: 'tun',
+            tag: 'tun-in',
+            extra: {
+              'stack': 'system',
+              'auto_route': true,
+              'strict_route': true,
+            },
+          ),
+      ],
       outbounds: outbounds,
       route: SingboxRoute(
         rules: rules,
         finalOutbound: activeNode != null ? 'auto' : 'direct',
       ),
-      experimental: proxyConfig.tunEnabled
-          ? {
-              ...clashApi,
-              'tun': {
-                'stack': 'system',
-                'auto_route': true,
-                'strict_route': true,
-              },
-            }
-          : clashApi,
+      experimental: experimental,
     ).toJson();
+
+    result.addAll(_buildDnsConfig(proxyConfig));
+
+    return result;
   }
 
   static SingboxOutbound _nodeToSingboxOutbound(NodeConfig node) {
@@ -102,7 +195,8 @@ class ConfigAdapter {
             'uuid': extra['uuid'] ?? '',
             'flow': extra['flow'] ?? '',
             'tls': {
-              'enabled': extra['security'] == 'tls' || extra['security'] == 'reality',
+              'enabled':
+                  extra['security'] == 'tls' || extra['security'] == 'reality',
               'server_name': extra['sni'] ?? node.address,
               'insecure': extra['insecure'] == true,
               if (extra['security'] == 'reality') ...{
@@ -244,27 +338,55 @@ class ConfigAdapter {
       proxies.add(_nodeToMihomoProxy(activeNode));
     }
 
-    final rules = routingRules
-        .where((r) => r.enabled)
-        .map((r) {
-          switch (r.type) {
-            case 'domain':
-              return 'DOMAIN,${r.match},${r.target.toUpperCase()}';
-            case 'ip':
-              return 'IP-CIDR,${r.match}/32,${r.target.toUpperCase()}';
-            default:
-              return 'MATCH,${r.target.toUpperCase()}';
-          }
-        })
-        .toList();
+    final rules = <String>[];
+
+    if (proxyConfig.adBlocking) {
+      rules.add('DOMAIN-KEYWORD,ads,BLOCK');
+      rules.add('GEOSITE,category-ads-all,BLOCK');
+    }
+
+    for (final r in routingRules.where((r) => r.enabled)) {
+      switch (r.type) {
+        case 'domain':
+          rules.add('DOMAIN,${r.match},${r.target.toUpperCase()}');
+        case 'domain_keyword':
+          rules.add('DOMAIN-KEYWORD,${r.match},${r.target.toUpperCase()}');
+        case 'domain_suffix':
+          rules.add('DOMAIN-SUFFIX,${r.match},${r.target.toUpperCase()}');
+        case 'ip_cidr':
+          rules.add('IP-CIDR,${r.match},${r.target.toUpperCase()}');
+        case 'geoip':
+          rules.add('GEOIP,${r.match},${r.target.toUpperCase()}');
+        case 'geosite':
+          rules.add('GEOSITE,${r.match},${r.target.toUpperCase()}');
+        case 'process':
+          rules.add('PROCESS-NAME,${r.match},${r.target.toUpperCase()}');
+        case 'port':
+          rules.add('DST-PORT,${r.match},${r.target.toUpperCase()}');
+        default:
+          rules.add('MATCH,${r.target.toUpperCase()}');
+      }
+    }
 
     rules.add('MATCH,${activeNode != null ? "PROXY" : "DIRECT"}');
+
+    final dnsConfig = <String, dynamic>{};
+    if (proxyConfig.dnsConfig.mode != DnsMode.system) {
+      dnsConfig['dns'] = {
+        'enable': true,
+        'listen': '0.0.0.0:1053',
+        'enhanced-mode': 'fake-ip',
+        'nameserver': proxyConfig.dnsConfig.servers,
+        'fallback': proxyConfig.dnsConfig.fallbackServers,
+      };
+    }
 
     return {
       'mixed-port': proxyConfig.localPort,
       'socks-port': proxyConfig.socksPort,
       'port': proxyConfig.httpPort,
-      'allow-lan': false,
+      'allow-lan': proxyConfig.lanSharing,
+      'bind-address': proxyConfig.lanSharing ? '*' : '127.0.0.1',
       'mode': 'rule',
       'log-level': 'info',
       if (proxies.isNotEmpty) 'proxies': proxies,
@@ -272,10 +394,12 @@ class ConfigAdapter {
         {
           'name': 'PROXY',
           'type': 'select',
-          'proxies': activeNode != null ? [activeNode.name] : ['DIRECT'],
+          'proxies':
+              activeNode != null ? [activeNode.name] : ['DIRECT'],
         },
       ],
       'rules': rules,
+      ...dnsConfig,
     };
   }
 
@@ -357,27 +481,93 @@ class ConfigAdapter {
       outbounds.insert(0, _nodeToV2rayOutbound(activeNode));
     }
 
-    final rules = routingRules.where((r) => r.enabled).map((r) {
+    final rules = <Map<String, dynamic>>[];
+
+    if (proxyConfig.adBlocking) {
+      rules.add({
+        'type': 'field',
+        'domain': ['geosite:category-ads-all'],
+        'outboundTag': 'block',
+      });
+    }
+
+    for (final r in routingRules.where((r) => r.enabled)) {
       switch (r.type) {
         case 'domain':
-          return {
+          rules.add({
             'type': 'field',
             'domain': [r.match],
             'outboundTag': r.target,
-          };
-        case 'ip':
-          return {
+          });
+        case 'domain_keyword':
+          rules.add({
+            'type': 'field',
+            'domain': ['keyword:${r.match}'],
+            'outboundTag': r.target,
+          });
+        case 'domain_suffix':
+          rules.add({
+            'type': 'field',
+            'domain': ['domain-suffix:${r.match}'],
+            'outboundTag': r.target,
+          });
+        case 'ip_cidr':
+          rules.add({
             'type': 'field',
             'ip': [r.match],
             'outboundTag': r.target,
-          };
+          });
+        case 'geoip':
+          rules.add({
+            'type': 'field',
+            'ip': ['geoip:${r.match}'],
+            'outboundTag': r.target,
+          });
+        case 'geosite':
+          rules.add({
+            'type': 'field',
+            'domain': ['geosite:${r.match}'],
+            'outboundTag': r.target,
+          });
+        case 'process':
+          rules.add({
+            'type': 'field',
+            'process': [r.match],
+            'outboundTag': r.target,
+          });
+        case 'port':
+          rules.add({
+            'type': 'field',
+            'port': r.match,
+            'outboundTag': r.target,
+          });
         default:
-          return {
+          rules.add({
             'type': 'field',
             'outboundTag': r.target,
-          };
+          });
       }
-    }).toList();
+    }
+
+    final listenAddr =
+        proxyConfig.lanSharing ? '0.0.0.0' : proxyConfig.localAddress;
+
+    final dnsConfig = <String, dynamic>{};
+    if (proxyConfig.dnsConfig.mode != DnsMode.system) {
+      dnsConfig['dns'] = {
+        'servers': [
+          ...proxyConfig.dnsConfig.servers.map((s) => {
+                'address': s,
+                'skipFallback': false,
+              }),
+          ...proxyConfig.dnsConfig.fallbackServers.map((s) => {
+                'address': s,
+                'skipFallback': true,
+              }),
+        ],
+        'queryStrategy': 'UseIP',
+      };
+    }
 
     return {
       'log': {'loglevel': 'info'},
@@ -385,13 +575,13 @@ class ConfigAdapter {
         {
           'tag': 'socks',
           'protocol': 'socks',
-          'listen': '127.0.0.1',
+          'listen': listenAddr,
           'port': proxyConfig.socksPort,
         },
         {
           'tag': 'http',
           'protocol': 'http',
-          'listen': '127.0.0.1',
+          'listen': listenAddr,
           'port': proxyConfig.httpPort,
         },
       ],
@@ -400,6 +590,7 @@ class ConfigAdapter {
         'rules': rules,
         'domainStrategy': 'IPIfNonMatch',
       },
+      ...dnsConfig,
     };
   }
 

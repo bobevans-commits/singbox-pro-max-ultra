@@ -23,10 +23,17 @@ class ProxyService extends ChangeNotifier {
   Process? _process;
   int _uploadBytes = 0;
   int _downloadBytes = 0;
+  int _uploadSpeed = 0;
+  int _downloadSpeed = 0;
+  int _lastUploadBytes = 0;
+  int _lastDownloadBytes = 0;
   final List<String> _logs = [];
   final StreamController<String> _logController =
       StreamController<String>.broadcast();
   int? _latencyMs;
+  List<RoutingRule> _routingRules = [];
+  Timer? _speedTimer;
+  final List<SpeedRecord> _speedHistory = [];
 
   ProxyState get state => _state;
   ProxyConfig get config => _config;
@@ -34,14 +41,47 @@ class ProxyService extends ChangeNotifier {
   bool get isRunning => _state == ProxyState.running;
   int get uploadBytes => _uploadBytes;
   int get downloadBytes => _downloadBytes;
+  int get uploadSpeed => _uploadSpeed;
+  int get downloadSpeed => _downloadSpeed;
   List<String> get logs => List.unmodifiable(_logs);
   Stream<String> get logStream => _logController.stream;
   int? get latencyMs => _latencyMs;
+  List<RoutingRule> get routingRules => _routingRules;
+  List<SpeedRecord> get speedHistory => List.unmodifiable(_speedHistory);
 
-  ProxyService(this._kernelManager);
+  ProxyService(this._kernelManager) {
+    _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _updateSpeed();
+    });
+  }
+
+  void _updateSpeed() {
+    _uploadSpeed = _uploadBytes - _lastUploadBytes;
+    _downloadSpeed = _downloadBytes - _lastDownloadBytes;
+    _lastUploadBytes = _uploadBytes;
+    _lastDownloadBytes = _downloadBytes;
+
+    if (isRunning) {
+      _speedHistory.add(SpeedRecord(
+        time: DateTime.now(),
+        upload: _uploadSpeed,
+        download: _downloadSpeed,
+      ));
+      if (_speedHistory.length > 60) {
+        _speedHistory.removeRange(0, _speedHistory.length - 60);
+      }
+    }
+
+    notifyListeners();
+  }
 
   void updateConfig(ProxyConfig config) {
     _config = config;
+    notifyListeners();
+  }
+
+  void updateRoutingRules(List<RoutingRule> rules) {
+    _routingRules = rules;
     notifyListeners();
   }
 
@@ -52,7 +92,12 @@ class ProxyService extends ChangeNotifier {
     _state = ProxyState.starting;
     _uploadBytes = 0;
     _downloadBytes = 0;
+    _uploadSpeed = 0;
+    _downloadSpeed = 0;
+    _lastUploadBytes = 0;
+    _lastDownloadBytes = 0;
     _latencyMs = null;
+    _speedHistory.clear();
     notifyListeners();
 
     _addLog('[ProxyService] Starting proxy with ${node.name}...');
@@ -96,8 +141,10 @@ class ProxyService extends ChangeNotifier {
       if (exitCode == -1) {
         _state = ProxyState.running;
         _addLog('[ProxyService] Proxy started successfully');
+        testLatency(node);
       } else {
-        _addLog('[ProxyService] Process exited immediately with code $exitCode');
+        _addLog(
+            '[ProxyService] Process exited immediately with code $exitCode');
         _state = ProxyState.stopped;
         _activeNode = null;
       }
@@ -128,6 +175,8 @@ class ProxyService extends ChangeNotifier {
     _process = null;
     _state = ProxyState.stopped;
     _activeNode = null;
+    _uploadSpeed = 0;
+    _downloadSpeed = 0;
     _addLog('[ProxyService] Proxy stopped');
     notifyListeners();
   }
@@ -156,6 +205,63 @@ class ProxyService extends ChangeNotifier {
     return _latencyMs!;
   }
 
+  Future<void> testAllLatency(List<NodeConfig> nodes) async {
+    final futures = nodes.map((node) async {
+      final stopwatch = Stopwatch()..start();
+      try {
+        final socket = await Socket.connect(
+          node.address,
+          node.port,
+          timeout: const Duration(seconds: 5),
+        );
+        stopwatch.stop();
+        socket.destroy();
+        node.latencyMs = stopwatch.elapsedMilliseconds;
+      } catch (_) {
+        stopwatch.stop();
+        node.latencyMs = -1;
+      }
+    });
+    await Future.wait(futures);
+    notifyListeners();
+  }
+
+  Future<double> testDownloadSpeed(NodeConfig node) async {
+    try {
+      final stopwatch = Stopwatch()..start();
+      final client = HttpClient();
+      final request =
+          await client.getUrl(Uri.parse('https://cachefly.cachefly.net/1mb.test'));
+      final response = await request.close();
+
+      int totalBytes = 0;
+      await for (final chunk in response) {
+        totalBytes += chunk.length;
+      }
+      stopwatch.stop();
+
+      client.close();
+
+      if (stopwatch.elapsedMilliseconds > 0) {
+        final speed = (totalBytes * 1000) / stopwatch.elapsedMilliseconds;
+        node.downloadSpeed = speed;
+        notifyListeners();
+        return speed;
+      }
+    } catch (e) {
+      node.downloadSpeed = -1;
+      notifyListeners();
+    }
+    return -1;
+  }
+
+  NodeConfig? findBestNode(List<NodeConfig> nodes) {
+    final tested = nodes.where((n) => n.latencyMs != null && n.latencyMs! > 0);
+    if (tested.isEmpty) return null;
+    return tested.reduce((a, b) =>
+        (a.latencyMs ?? 9999) < (b.latencyMs ?? 9999) ? a : b);
+  }
+
   Future<String> _getKernelBinaryPath() async {
     return _kernelManager.getBinaryPath(_config.kernelType);
   }
@@ -181,19 +287,19 @@ class ProxyService extends ChangeNotifier {
         configJson = ConfigAdapter.toSingboxConfig(
           _config,
           node,
-          [],
+          _routingRules,
         );
       case KernelType.mihomo:
         configJson = ConfigAdapter.toMihomoConfig(
           _config,
           node,
-          [],
+          _routingRules,
         );
       case KernelType.v2ray:
         configJson = ConfigAdapter.toV2rayConfig(
           _config,
           node,
-          [],
+          _routingRules,
         );
     }
 
@@ -215,9 +321,7 @@ class ProxyService extends ChangeNotifier {
           notifyListeners();
         }
       }
-    } catch (_) {
-      // Not a JSON traffic line, ignore
-    }
+    } catch (_) {}
   }
 
   void _addLog(String message) {
@@ -237,8 +341,21 @@ class ProxyService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _speedTimer?.cancel();
     _logController.close();
     _process?.kill();
     super.dispose();
   }
+}
+
+class SpeedRecord {
+  final DateTime time;
+  final int upload;
+  final int download;
+
+  const SpeedRecord({
+    required this.time,
+    required this.upload,
+    required this.download,
+  });
 }

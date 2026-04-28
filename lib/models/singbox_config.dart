@@ -27,18 +27,39 @@ class SingboxOutbound {
 class SingboxRouteRule {
   final String outbound;
   final List<String> domain;
+  final List<String> domainKeyword;
+  final List<String> domainSuffix;
   final List<String> ip;
+  final List<String> geoip;
+  final List<String> geosite;
+  final List<String> process;
+  final List<String> protocol;
+  final List<int> port;
 
   const SingboxRouteRule({
     required this.outbound,
     this.domain = const [],
+    this.domainKeyword = const [],
+    this.domainSuffix = const [],
     this.ip = const [],
+    this.geoip = const [],
+    this.geosite = const [],
+    this.process = const [],
+    this.protocol = const [],
+    this.port = const [],
   });
 
   Map<String, dynamic> toJson() {
     final map = <String, dynamic>{'outbound': outbound};
     if (domain.isNotEmpty) map['domain'] = domain;
+    if (domainKeyword.isNotEmpty) map['domain_keyword'] = domainKeyword;
+    if (domainSuffix.isNotEmpty) map['domain_suffix'] = domainSuffix;
     if (ip.isNotEmpty) map['ip_cidr'] = ip;
+    if (geoip.isNotEmpty) map['geoip'] = geoip;
+    if (geosite.isNotEmpty) map['geosite'] = geosite;
+    if (process.isNotEmpty) map['process_name'] = process;
+    if (protocol.isNotEmpty) map['protocol'] = protocol;
+    if (port.isNotEmpty) map['port'] = port;
     return map;
   }
 }

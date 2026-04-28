@@ -7,7 +7,7 @@ import 'screens/subscriptions_screen.dart';
 import 'screens/node_editor_screen.dart';
 import 'screens/routing_editor_screen.dart';
 import 'screens/log_screen.dart';
-import 'screens/kernel_settings_screen.dart';
+import 'screens/settings_screen.dart';
 import 'services/config_storage_service.dart';
 import 'services/kernel_manager.dart';
 import 'services/proxy_service.dart';
@@ -54,14 +54,17 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   ThemeMode _themeMode = ThemeMode.system;
 
+  ThemeMode get themeMode => _themeMode;
+
   void setThemeMode(ThemeMode mode) {
     setState(() => _themeMode = mode);
   }
 
   void toggleTheme() {
     setState(() {
-      _themeMode =
-          _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+      _themeMode = _themeMode == ThemeMode.light
+          ? ThemeMode.dark
+          : ThemeMode.light;
     });
   }
 
@@ -107,7 +110,7 @@ class _MainNavigationState extends State<MainNavigation> {
     HomeScreen(),
     SubscriptionsScreen(),
     LogScreen(),
-    KernelSettingsScreen(),
+    SettingsScreen(),
   ];
 
   @override
@@ -178,10 +181,8 @@ class _MainNavigationState extends State<MainNavigation> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => NodeEditorScreen(
-                  node: node,
-                  onSave: _updateNode,
-                ),
+                builder: (_) =>
+                    NodeEditorScreen(node: node, onSave: _updateNode),
               ),
             );
           },
@@ -267,9 +268,9 @@ class _MainNavigationState extends State<MainNavigation> {
             label: '日志',
           ),
           NavigationDestination(
-            icon: Icon(Icons.dns_outlined),
-            selectedIcon: Icon(Icons.dns),
-            label: '内核',
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: '设置',
           ),
         ],
       ),
@@ -324,10 +325,7 @@ class _AppDrawer extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(28, 16, 16, 8),
-          child: Text(
-            'ProxCore',
-            style: theme.textTheme.titleMedium,
-          ),
+          child: Text('ProxCore', style: theme.textTheme.titleMedium),
         ),
         const Divider(),
         ListTile(
@@ -404,6 +402,7 @@ class _NodeListSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final proxyService = context.watch<ProxyService>();
 
     return Column(
       children: [
@@ -413,6 +412,14 @@ class _NodeListSheet extends StatelessWidget {
             children: [
               Text('节点列表', style: theme.textTheme.titleLarge),
               const Spacer(),
+              TextButton.icon(
+                onPressed: () {
+                  proxyService.testAllLatency(nodes);
+                },
+                icon: const Icon(Icons.speed, size: 18),
+                label: const Text('全部测速'),
+              ),
+              const SizedBox(width: 4),
               FilledButton.icon(
                 onPressed: onAdd,
                 icon: const Icon(Icons.add, size: 18),
@@ -428,8 +435,11 @@ class _NodeListSheet extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.cloud_off,
-                          size: 64, color: theme.colorScheme.outline),
+                      Icon(
+                        Icons.cloud_off,
+                        size: 64,
+                        color: theme.colorScheme.outline,
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         '暂无节点',
@@ -445,12 +455,69 @@ class _NodeListSheet extends StatelessWidget {
                   itemCount: nodes.length,
                   itemBuilder: (context, index) {
                     final node = nodes[index];
+                    final isActive = proxyService.activeNode?.id == node.id;
+                    final latency = node.latencyMs;
+
+                    Color latencyColor;
+                    String latencyText;
+                    if (latency == null) {
+                      latencyColor = theme.colorScheme.outline;
+                      latencyText = '--';
+                    } else if (latency == -1) {
+                      latencyColor = Colors.red;
+                      latencyText = '超时';
+                    } else {
+                      latencyColor = Color(AppUtils.latencyColor(latency));
+                      latencyText = '${latency}ms';
+                    }
+
                     return ListTile(
-                      leading: Text(
-                        AppUtils.protocolIcon(node.protocol),
-                        style: const TextStyle(fontSize: 20),
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            AppUtils.protocolIcon(node.protocol),
+                            style: const TextStyle(fontSize: 20),
+                          ),
+                          if (isActive) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
-                      title: Text(node.name),
+                      title: Row(
+                        children: [
+                          Expanded(child: Text(node.name)),
+                          InkWell(
+                            onTap: () => proxyService.testLatency(node),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: latencyColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                latencyText,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: latencyColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       subtitle: Text(
                         '${node.protocol.label} | ${node.address}:${node.port}',
                         style: theme.textTheme.bodySmall,
@@ -458,16 +525,25 @@ class _NodeListSheet extends StatelessWidget {
                       trailing: PopupMenuButton(
                         itemBuilder: (ctx) => [
                           const PopupMenuItem(
-                              value: 'connect', child: Text('连接')),
+                            value: 'connect',
+                            child: Text('连接'),
+                          ),
                           const PopupMenuItem(
-                              value: 'edit', child: Text('编辑')),
+                            value: 'latency',
+                            child: Text('测速'),
+                          ),
+                          const PopupMenuItem(value: 'edit', child: Text('编辑')),
                           const PopupMenuItem(
-                              value: 'delete', child: Text('删除')),
+                            value: 'delete',
+                            child: Text('删除'),
+                          ),
                         ],
                         onSelected: (value) {
                           switch (value) {
                             case 'connect':
                               onConnect(node);
+                            case 'latency':
+                              proxyService.testLatency(node);
                             case 'edit':
                               onEdit(node);
                             case 'delete':
