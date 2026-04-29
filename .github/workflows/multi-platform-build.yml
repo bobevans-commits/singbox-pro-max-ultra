@@ -22,7 +22,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'windows')
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -62,7 +62,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'macos')
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -104,7 +104,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'linux')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Linux dependencies
         run: |
@@ -148,10 +148,10 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'android')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -213,10 +213,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             windows-build/*.zip

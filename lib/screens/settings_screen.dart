@@ -331,7 +331,7 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _importConfig(BuildContext context) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['json'],
       );
