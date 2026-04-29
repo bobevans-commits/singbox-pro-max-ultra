@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../main.dart';
 import '../models/config.dart';
 import '../services/proxy_service.dart';
+import '../services/subscription_service.dart';
 import '../services/kernel_manager.dart';
 import 'kernel_settings_screen.dart';
 

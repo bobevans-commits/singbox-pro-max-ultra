@@ -349,6 +349,8 @@ class _NodeListSheetState extends State<_NodeListSheet> {
   _NodeSortMode _sortMode = _NodeSortMode.defaultOrder;
   ProxyProtocol? _filterProtocol;
   bool _groupByProtocol = false;
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
 
   List<NodeConfig> _applySortAndFilter(List<NodeConfig> nodes) {
     var filtered = _filterProtocol != null
@@ -415,13 +417,69 @@ class _NodeListSheetState extends State<_NodeListSheet> {
                 ),
               ),
               const Spacer(),
-              IconButton(
-                onPressed: () {
-                  proxyService.testAllLatency(allNodes.toList());
-                },
-                icon: const Icon(Icons.speed, size: 20),
-                tooltip: '全部测速',
-              ),
+              if (_selectMode) ...[
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      if (_selectedIds.length == allNodes.length) {
+                        _selectedIds.clear();
+                      } else {
+                        _selectedIds.clear();
+                        _selectedIds.addAll(allNodes.map((n) => n.id));
+                      }
+                    });
+                  },
+                  child: Text(
+                    _selectedIds.length == allNodes.length ? '取消全选' : '全选',
+                  ),
+                ),
+                IconButton(
+                  onPressed: _selectedIds.isEmpty
+                      ? null
+                      : () {
+                          final count = _selectedIds.length;
+                          for (final id in _selectedIds) {
+                            proxyService.deleteNode(id);
+                          }
+                          setState(() {
+                            _selectedIds.clear();
+                            _selectMode = false;
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('已删除 $count 个节点'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                  icon: const Icon(Icons.delete, size: 20),
+                  tooltip: '删除选中',
+                ),
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectMode = false;
+                      _selectedIds.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.close, size: 20),
+                  tooltip: '退出管理',
+                ),
+              ] else ...[
+                IconButton(
+                  onPressed: () {
+                    setState(() => _selectMode = true);
+                  },
+                  icon: const Icon(Icons.checklist, size: 20),
+                  tooltip: '批量管理',
+                ),
+                IconButton(
+                  onPressed: () {
+                    proxyService.testAllLatency(allNodes.toList());
+                  },
+                  icon: const Icon(Icons.speed, size: 20),
+                  tooltip: '全部测速',
+                ),
               PopupMenuButton(
                 icon: const Icon(Icons.sort, size: 20),
                 tooltip: '排序',
@@ -461,6 +519,7 @@ class _NodeListSheetState extends State<_NodeListSheet> {
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('添加'),
               ),
+              ],
             ],
           ),
         ),
@@ -594,9 +653,23 @@ class _NodeListSheetState extends State<_NodeListSheet> {
     }
 
     return ListTile(
+      selected: _selectMode && _selectedIds.contains(node.id),
       leading: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_selectMode)
+            Checkbox(
+              value: _selectedIds.contains(node.id),
+              onChanged: (v) {
+                setState(() {
+                  if (v == true) {
+                    _selectedIds.add(node.id);
+                  } else {
+                    _selectedIds.remove(node.id);
+                  }
+                });
+              },
+            ),
           Text(
             AppUtils.protocolIcon(node.protocol),
             style: const TextStyle(fontSize: 20),
@@ -644,7 +717,9 @@ class _NodeListSheetState extends State<_NodeListSheet> {
         '${node.protocol.label} | ${node.address}:${node.port}',
         style: theme.textTheme.bodySmall,
       ),
-      trailing: PopupMenuButton(
+      trailing: _selectMode
+          ? null
+          : PopupMenuButton(
         itemBuilder: (ctx) => [
           const PopupMenuItem(value: 'connect', child: Text('连接')),
           const PopupMenuItem(value: 'latency', child: Text('测速')),
@@ -675,7 +750,17 @@ class _NodeListSheetState extends State<_NodeListSheet> {
           }
         },
       ),
-      onTap: () => proxyService.start(node),
+      onTap: _selectMode
+          ? () {
+              setState(() {
+                if (_selectedIds.contains(node.id)) {
+                  _selectedIds.remove(node.id);
+                } else {
+                  _selectedIds.add(node.id);
+                }
+              });
+            }
+          : () => proxyService.start(node),
     );
   }
 }
