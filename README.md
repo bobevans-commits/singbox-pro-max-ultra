@@ -36,7 +36,7 @@ lib/
 ├── models/
 │   ├── config.dart                  # ProxyConfig/NodeConfig/RoutingRule/DnsConfig
 │   ├── kernel_info.dart             # KernelInfo/KernelReleaseInfo/KernelAssetInfo
-│   └── singbox_config.dart          # sing-box JSON 配置模型
+│   └── singbox_config.dart          # sing-box 内核 JSON 配置模型
 ├── screens/
 │   ├── home_screen.dart             # 仪表板(状态/网速/概要/快捷设置/内核安装引导)
 │   ├── kernel_settings_screen.dart  # 内核管理(版本选择/下载进度)
@@ -84,7 +84,7 @@ lib/
 ### 安装与运行
 ```bash
 git clone <repo-url>
-cd singbox-pro-max-ultra
+cd proxcore
 flutter pub get
 flutter run -d windows
 ```

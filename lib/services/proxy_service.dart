@@ -584,7 +584,7 @@ class ProxyService extends ChangeNotifier {
   /// 根据当前内核类型调用对应的 ConfigAdapter 方法
   /// 生成 JSON 格式配置并写入临时文件
   Future<String> _writeKernelConfig(NodeConfig node) async {
-    final dir = Directory.systemTemp.createTempSync('singbox_config_');
+    final dir = Directory.systemTemp.createTempSync('proxcore_config_');
     final file = File('${dir.path}/config.json');
 
     Map<String, dynamic> configJson;

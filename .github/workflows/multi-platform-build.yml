@@ -50,13 +50,13 @@ jobs:
       - name: Package Windows
         shell: pwsh
         run: |
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "singbox-pro-max-ultra-windows-amd64.zip"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "proxcore-windows-amd64.zip"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: singbox-pro-max-ultra-windows-amd64.zip
+          path: proxcore-windows-amd64.zip
 
   build-macos:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'macos')
@@ -92,13 +92,13 @@ jobs:
       - name: Package macOS
         run: |
           cd build/macos/Build/Products/Release
-          zip -r -9 "${{ github.workspace }}/singbox-pro-max-ultra-macos.zip" "*.app"
+          zip -r -9 "${{ github.workspace }}/proxcore-macos.zip" "*.app"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: singbox-pro-max-ultra-macos.zip
+          path: proxcore-macos.zip
 
   build-linux:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'linux')
@@ -136,13 +136,13 @@ jobs:
       - name: Package Linux
         run: |
           cd build/linux/x64/release/bundle
-          tar czf "${{ github.workspace }}/singbox-pro-max-ultra-linux-amd64.tar.gz" .
+          tar czf "${{ github.workspace }}/proxcore-linux-amd64.tar.gz" .
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-build
-          path: singbox-pro-max-ultra-linux-amd64.tar.gz
+          path: proxcore-linux-amd64.tar.gz
 
   build-android:
     if: github.event_name != 'workflow_dispatch' || contains(github.event.inputs.platforms, 'android')

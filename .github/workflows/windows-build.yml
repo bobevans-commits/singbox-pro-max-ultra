@@ -70,18 +70,18 @@ jobs:
       - name: Create ZIP package
         shell: pwsh
         run: |
-          $zipName = "singbox-pro-max-ultra-windows-amd64.zip"
+          $zipName = "proxcore-windows-amd64.zip"
           Compress-Archive -Path "release\*" -DestinationPath $zipName
 
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-zip
-          path: singbox-pro-max-ultra-windows-amd64.zip
+          path: proxcore-windows-amd64.zip
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
-          files: singbox-pro-max-ultra-windows-amd64.zip
+          files: proxcore-windows-amd64.zip
           generate_release_notes: true
