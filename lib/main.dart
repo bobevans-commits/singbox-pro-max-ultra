@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'models/config.dart';
 import 'screens/home_screen.dart';
@@ -8,15 +12,36 @@ import 'screens/node_editor_screen.dart';
 import 'screens/routing_editor_screen.dart';
 import 'screens/log_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/clash_api_service.dart';
 import 'services/config_storage_service.dart';
+import 'services/geo_data_service.dart';
 import 'services/kernel_manager.dart';
 import 'services/proxy_service.dart';
+import 'services/smart_router.dart';
 import 'services/subscription_service.dart';
+import 'services/tray_service.dart';
+import 'services/webdav_sync_service.dart';
 import 'utils/app_utils.dart';
+import 'widgets/glass_theme.dart';
 import 'widgets/proxy_link_importer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await windowManager.ensureInitialized();
+    const windowOptions = WindowOptions(
+      size: Size(960, 680),
+      minimumSize: Size(480, 400),
+      center: true,
+      backgroundColor: Colors.transparent,
+      titleBarStyle: TitleBarStyle.hidden,
+      title: 'ProxCore',
+    );
+    await windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+    });
+  }
 
   final configStorage = ConfigStorageService();
   await configStorage.init();
@@ -36,16 +61,46 @@ void main() async {
     subscriptionService.setupAutoRefresh(proxyService.config.subRefreshMinutes);
   }
 
+  final clashApi = ClashApiService();
+  final smartRouter = SmartRouter();
+  final geoDataService = GeoDataService();
+  await geoDataService.init();
+  final webdavService = WebDavSyncService();
+
+  proxyService.setClashApi(clashApi);
+  proxyService.setSmartRouter(smartRouter);
+
+  final trayService = TrayService(proxyService);
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await trayService.init();
+  }
+
+  proxyService.addListener(() => trayService.update());
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: kernelManager),
         ChangeNotifierProvider.value(value: proxyService),
         ChangeNotifierProvider.value(value: subscriptionService),
+        ChangeNotifierProvider.value(value: clashApi),
+        ChangeNotifierProvider.value(value: smartRouter),
+        ChangeNotifierProvider.value(value: geoDataService),
+        ChangeNotifierProvider.value(value: webdavService),
       ],
       child: const MyApp(),
     ),
   );
+
+  doWhenWindowReady(() {
+    const initialSize = Size(960, 680);
+    const minSize = Size(480, 400);
+    appWindow.minSize = minSize;
+    appWindow.size = initialSize;
+    appWindow.alignment = Alignment.center;
+    appWindow.title = 'ProxCore';
+    appWindow.show();
+  });
 }
 
 class MyApp extends StatefulWidget {
@@ -82,22 +137,62 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       title: 'ProxCore',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6750A4),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6750A4),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: GlassTheme.lightTheme,
+      darkTheme: GlassTheme.darkTheme,
       themeMode: _themeMode,
       home: const MainNavigation(),
+    );
+  }
+}
+
+class _CustomTitleBar extends StatelessWidget {
+  const _CustomTitleBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return WindowTitleBarBox(
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0A0E27) : const Color(0xFFF0F2F5),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: MoveWindow(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: Text(
+                    'ProxCore',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            MinimizeWindowButton(
+              colors: WindowButtonColors(
+                iconNormal: isDark ? Colors.white54 : Colors.black45,
+                mouseOver: isDark ? Colors.white10 : Colors.black12,
+              ),
+            ),
+            MaximizeWindowButton(
+              colors: WindowButtonColors(
+                iconNormal: isDark ? Colors.white54 : Colors.black45,
+                mouseOver: isDark ? Colors.white10 : Colors.black12,
+              ),
+            ),
+            CloseWindowButton(
+              colors: WindowButtonColors(
+                iconNormal: isDark ? Colors.white54 : Colors.black45,
+                mouseOver: Colors.red.shade400,
+                mouseDown: Colors.red.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -199,7 +294,12 @@ class _MainNavigationState extends State<MainNavigation> {
     final proxyService = context.watch<ProxyService>();
 
     return Scaffold(
-      body: _screens[_currentIndex],
+      body: Column(
+        children: [
+          if (Platform.isWindows) const _CustomTitleBar(),
+          Expanded(child: _screens[_currentIndex]),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -336,10 +436,7 @@ class _NodeListSheet extends StatefulWidget {
   final ScrollController scrollController;
   final VoidCallback onAdd;
 
-  const _NodeListSheet({
-    required this.scrollController,
-    required this.onAdd,
-  });
+  const _NodeListSheet({required this.scrollController, required this.onAdd});
 
   @override
   State<_NodeListSheet> createState() => _NodeListSheetState();
@@ -379,7 +476,9 @@ class _NodeListSheetState extends State<_NodeListSheet> {
     return filtered;
   }
 
-  Map<ProxyProtocol, List<NodeConfig>> _groupByProtocolFn(List<NodeConfig> nodes) {
+  Map<ProxyProtocol, List<NodeConfig>> _groupByProtocolFn(
+    List<NodeConfig> nodes,
+  ) {
     final map = <ProxyProtocol, List<NodeConfig>>{};
     for (final node in nodes) {
       (map[node.protocol] ??= []).add(node);
@@ -480,45 +579,53 @@ class _NodeListSheetState extends State<_NodeListSheet> {
                   icon: const Icon(Icons.speed, size: 20),
                   tooltip: '全部测速',
                 ),
-              PopupMenuButton(
-                icon: const Icon(Icons.sort, size: 20),
-                tooltip: '排序',
-                itemBuilder: (ctx) => [
-                  const PopupMenuItem(value: 'default', child: Text('默认排序')),
-                  const PopupMenuItem(value: 'latency_asc', child: Text('延迟升序')),
-                  const PopupMenuItem(value: 'latency_desc', child: Text('延迟降序')),
-                  const PopupMenuItem(value: 'name_asc', child: Text('名称排序')),
-                ],
-                onSelected: (value) {
-                  setState(() {
-                    switch (value) {
-                      case 'default':
-                        _sortMode = _NodeSortMode.defaultOrder;
-                      case 'latency_asc':
-                        _sortMode = _NodeSortMode.latencyAsc;
-                      case 'latency_desc':
-                        _sortMode = _NodeSortMode.latencyDesc;
-                      case 'name_asc':
-                        _sortMode = _NodeSortMode.nameAsc;
-                    }
-                  });
-                },
-              ),
-              IconButton(
-                onPressed: () {
-                  setState(() => _groupByProtocol = !_groupByProtocol);
-                },
-                icon: Icon(
-                  _groupByProtocol ? Icons.folder_open : Icons.folder_outlined,
-                  size: 20,
+                PopupMenuButton(
+                  icon: const Icon(Icons.sort, size: 20),
+                  tooltip: '排序',
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem(value: 'default', child: Text('默认排序')),
+                    const PopupMenuItem(
+                      value: 'latency_asc',
+                      child: Text('延迟升序'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'latency_desc',
+                      child: Text('延迟降序'),
+                    ),
+                    const PopupMenuItem(value: 'name_asc', child: Text('名称排序')),
+                  ],
+                  onSelected: (value) {
+                    setState(() {
+                      switch (value) {
+                        case 'default':
+                          _sortMode = _NodeSortMode.defaultOrder;
+                        case 'latency_asc':
+                          _sortMode = _NodeSortMode.latencyAsc;
+                        case 'latency_desc':
+                          _sortMode = _NodeSortMode.latencyDesc;
+                        case 'name_asc':
+                          _sortMode = _NodeSortMode.nameAsc;
+                      }
+                    });
+                  },
                 ),
-                tooltip: '按协议分组',
-              ),
-              FilledButton.icon(
-                onPressed: widget.onAdd,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('添加'),
-              ),
+                IconButton(
+                  onPressed: () {
+                    setState(() => _groupByProtocol = !_groupByProtocol);
+                  },
+                  icon: Icon(
+                    _groupByProtocol
+                        ? Icons.folder_open
+                        : Icons.folder_outlined,
+                    size: 20,
+                  ),
+                  tooltip: '按协议分组',
+                ),
+                FilledButton.icon(
+                  onPressed: widget.onAdd,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('添加'),
+                ),
               ],
             ],
           ),
@@ -573,8 +680,8 @@ class _NodeListSheetState extends State<_NodeListSheet> {
                   ),
                 )
               : _groupByProtocol
-                  ? _buildGroupedList(context, nodes, proxyService, theme)
-                  : _buildFlatList(context, nodes, proxyService, theme),
+              ? _buildGroupedList(context, nodes, proxyService, theme)
+              : _buildFlatList(context, nodes, proxyService, theme),
         ),
       ],
     );
@@ -693,10 +800,7 @@ class _NodeListSheetState extends State<_NodeListSheet> {
           InkWell(
             onTap: () => proxyService.testLatency(node),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 6,
-                vertical: 2,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: latencyColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(4),
@@ -720,36 +824,36 @@ class _NodeListSheetState extends State<_NodeListSheet> {
       trailing: _selectMode
           ? null
           : PopupMenuButton(
-        itemBuilder: (ctx) => [
-          const PopupMenuItem(value: 'connect', child: Text('连接')),
-          const PopupMenuItem(value: 'latency', child: Text('测速')),
-          const PopupMenuItem(value: 'edit', child: Text('编辑')),
-          const PopupMenuItem(value: 'delete', child: Text('删除')),
-          const PopupMenuItem(value: 'filter', child: Text('筛选同协议')),
-        ],
-        onSelected: (value) {
-          switch (value) {
-            case 'connect':
-              proxyService.start(node);
-            case 'latency':
-              proxyService.testLatency(node);
-            case 'edit':
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => NodeEditorScreen(
-                    node: node,
-                    onSave: (n) => proxyService.updateNode(n),
-                  ),
-                ),
-              );
-            case 'delete':
-              proxyService.deleteNode(node.id);
-            case 'filter':
-              setState(() => _filterProtocol = node.protocol);
-          }
-        },
-      ),
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(value: 'connect', child: Text('连接')),
+                const PopupMenuItem(value: 'latency', child: Text('测速')),
+                const PopupMenuItem(value: 'edit', child: Text('编辑')),
+                const PopupMenuItem(value: 'delete', child: Text('删除')),
+                const PopupMenuItem(value: 'filter', child: Text('筛选同协议')),
+              ],
+              onSelected: (value) {
+                switch (value) {
+                  case 'connect':
+                    proxyService.start(node);
+                  case 'latency':
+                    proxyService.testLatency(node);
+                  case 'edit':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => NodeEditorScreen(
+                          node: node,
+                          onSave: (n) => proxyService.updateNode(n),
+                        ),
+                      ),
+                    );
+                  case 'delete':
+                    proxyService.deleteNode(node.id);
+                  case 'filter':
+                    setState(() => _filterProtocol = node.protocol);
+                }
+              },
+            ),
       onTap: _selectMode
           ? () {
               setState(() {
@@ -765,9 +869,4 @@ class _NodeListSheetState extends State<_NodeListSheet> {
   }
 }
 
-enum _NodeSortMode {
-  defaultOrder,
-  latencyAsc,
-  latencyDesc,
-  nameAsc,
-}
+enum _NodeSortMode { defaultOrder, latencyAsc, latencyDesc, nameAsc }

@@ -6,8 +6,10 @@ import 'package:flutter/foundation.dart';
 
 import '../models/config.dart';
 import '../utils/config_adapter.dart';
+import 'clash_api_service.dart';
 import 'config_storage_service.dart';
 import 'kernel_manager.dart';
+import 'smart_router.dart';
 import 'system_proxy_service.dart';
 
 enum ProxyState {
@@ -20,12 +22,16 @@ enum ProxyState {
 class ProxyService extends ChangeNotifier {
   final KernelManager _kernelManager;
   final ConfigStorageService _storage;
+  ClashApiService? _clashApi;
+  SmartRouter? _smartRouter;
 
   ProxyState _state = ProxyState.stopped;
   ProxyConfig _config = ProxyConfig();
   NodeConfig? _activeNode;
   Process? _process;
   DateTime? _startedAt;
+  int _crashCount = 0;
+  static const int _maxCrashAutoRestart = 3;
   int _uploadBytes = 0;
   int _downloadBytes = 0;
   int _uploadSpeed = 0;
@@ -70,6 +76,9 @@ class ProxyService extends ChangeNotifier {
     _routingRules = _storage.loadRoutingRules();
     notifyListeners();
   }
+
+  void setClashApi(ClashApiService api) => _clashApi = api;
+  void setSmartRouter(SmartRouter router) => _smartRouter = router;
 
   void _updateSpeed() {
     _uploadSpeed = _uploadBytes - _lastUploadBytes;
@@ -268,6 +277,19 @@ class ProxyService extends ChangeNotifier {
           if (_config.systemProxy) {
             await _removeSystemProxy();
           }
+          _smartRouter?.recordConnect(_activeNode!, success: false);
+          _clashApi?.disconnect();
+
+          if (_crashCount < _maxCrashAutoRestart && _activeNode != null) {
+            _crashCount++;
+            _addLog('[ProxyService] Auto-restart attempt $_crashCount/$_maxCrashAutoRestart');
+            await Future.delayed(const Duration(seconds: 2));
+            if (_state == ProxyState.stopped && _activeNode != null) {
+              await start(_activeNode!);
+              return;
+            }
+          }
+
           _state = ProxyState.stopped;
           _activeNode = null;
           _startedAt = null;
@@ -283,11 +305,15 @@ class ProxyService extends ChangeNotifier {
       if (exitCode == -1) {
         _state = ProxyState.running;
         _startedAt = DateTime.now();
+        _crashCount = 0;
         _addLog('[ProxyService] Proxy started successfully');
         testLatency(node);
         if (_config.systemProxy) {
           await _applySystemProxy();
         }
+        _clashApi?.configure(apiUrl: 'http://127.0.0.1:9090');
+        _clashApi?.connect();
+        _smartRouter?.recordConnect(node, success: true);
       } else {
         _addLog(
             '[ProxyService] Process exited immediately with code $exitCode');
@@ -307,8 +333,11 @@ class ProxyService extends ChangeNotifier {
     if (_state != ProxyState.running && _state != ProxyState.starting) return;
 
     _state = ProxyState.stopping;
+    _crashCount = _maxCrashAutoRestart;
     _addLog('[ProxyService] Stopping proxy...');
     notifyListeners();
+
+    _clashApi?.disconnect();
 
     try {
       _process?.kill();
