@@ -1,9 +1,14 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../main.dart';
 import '../models/config.dart';
 import '../services/proxy_service.dart';
+import '../services/kernel_manager.dart';
 import 'kernel_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -18,9 +23,7 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            title: const Text('设置'),
-          ),
+          SliverAppBar(title: const Text('设置')),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -65,10 +68,8 @@ class SettingsScreen extends StatelessWidget {
                           ),
                         ),
                         value: config.tunEnabled,
-                        onChanged: (v) {
-                          proxyService
-                              .updateConfig(config.copyWith(tunEnabled: v));
-                        },
+                        onChanged: (v) =>
+                            _onTunToggle(context, proxyService, v),
                       ),
                       SwitchListTile(
                         secondary: const Icon(Icons.settings_ethernet),
@@ -82,8 +83,7 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         value: config.systemProxy,
                         onChanged: (v) {
-                          proxyService
-                              .updateConfig(config.copyWith(systemProxy: v));
+                          proxyService.setSystemProxy(v);
                         },
                       ),
                       SwitchListTile(
@@ -98,8 +98,9 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         value: config.lanSharing,
                         onChanged: (v) {
-                          proxyService
-                              .updateConfig(config.copyWith(lanSharing: v));
+                          proxyService.updateConfig(
+                            config.copyWith(lanSharing: v),
+                          );
                         },
                       ),
                     ],
@@ -121,8 +122,9 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         value: config.adBlocking,
                         onChanged: (v) {
-                          proxyService
-                              .updateConfig(config.copyWith(adBlocking: v));
+                          proxyService.updateConfig(
+                            config.copyWith(adBlocking: v),
+                          );
                         },
                       ),
                       SwitchListTile(
@@ -137,8 +139,9 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         value: config.smartNode,
                         onChanged: (v) {
-                          proxyService
-                              .updateConfig(config.copyWith(smartNode: v));
+                          proxyService.updateConfig(
+                            config.copyWith(smartNode: v),
+                          );
                         },
                       ),
                     ],
@@ -179,6 +182,57 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _SectionCard(
+                    title: '数据',
+                    icon: Icons.storage,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.upload_file),
+                        title: const Text('导出配置'),
+                        subtitle: Text(
+                          '导出全部设置、节点和规则',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                            fontSize: 10,
+                          ),
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () => _exportConfig(context),
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.download),
+                        title: const Text('导入配置'),
+                        subtitle: Text(
+                          '从文件恢复配置',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                            fontSize: 10,
+                          ),
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () => _importConfig(context),
+                      ),
+                      ListTile(
+                        leading: Icon(
+                          Icons.delete_forever,
+                          color: theme.colorScheme.error,
+                        ),
+                        title: Text(
+                          '清除所有数据',
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                        subtitle: Text(
+                          '删除全部节点、规则和设置',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                            fontSize: 10,
+                          ),
+                        ),
+                        onTap: () => _confirmClearData(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _SectionCard(
                     title: '外观',
                     icon: Icons.palette,
                     children: [
@@ -198,16 +252,20 @@ class SettingsScreen extends StatelessWidget {
                       ListTile(
                         leading: const Icon(Icons.info_outline),
                         title: const Text('关于 ProxCore'),
-                        subtitle: Text('v1.0.0',
-                            style: theme.textTheme.labelSmall),
+                        subtitle: Text(
+                          'v1.0.0',
+                          style: theme.textTheme.labelSmall,
+                        ),
                         trailing: const Icon(Icons.chevron_right, size: 18),
                         onTap: () {
                           showAboutDialog(
                             context: context,
                             applicationName: 'ProxCore',
                             applicationVersion: '1.0.0',
-                            applicationIcon:
-                                const Icon(Icons.vpn_lock, size: 48),
+                            applicationIcon: const Icon(
+                              Icons.vpn_lock,
+                              size: 48,
+                            ),
                             children: [
                               const Text('多内核代理客户端'),
                               const SizedBox(height: 8),
@@ -228,16 +286,128 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _exportConfig(BuildContext context) async {
+    try {
+      final proxyService = context.read<ProxyService>();
+      final jsonStr = await proxyService.exportConfig();
+      final dir = Directory.systemTemp;
+      final file = File(
+        '${dir.path}/proxcore_config_${DateTime.now().millisecondsSinceEpoch}.json',
+      );
+      await file.writeAsString(jsonStr);
+
+      await Share.shareXFiles([XFile(file.path)], text: 'ProxCore 配置文件');
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('导出失败: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _importConfig(BuildContext context) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final jsonStr = await file.readAsString();
+
+        if (!context.mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('确认导入'),
+            content: const Text('导入将覆盖当前所有配置，确定继续吗？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed == true && context.mounted) {
+          final success = await context.read<ProxyService>().importConfig(
+            jsonStr,
+          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(success ? '导入成功' : '导入失败，文件格式错误'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('导入失败: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _confirmClearData(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清除所有数据'),
+        content: const Text('此操作将删除全部节点、规则、订阅和设置，且不可恢复。确定继续吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final proxyService = context.read<ProxyService>();
+              proxyService.clearNodes();
+              proxyService.updateRoutingRules([]);
+              proxyService.updateConfig(ProxyConfig());
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('已清除所有数据'),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('确定清除'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showDnsSettings(BuildContext context, ProxyConfig config) {
     var dnsMode = config.dnsConfig.mode;
-    final serversCtrl =
-        TextEditingController(text: config.dnsConfig.servers.join(', '));
-    final fallbackCtrl =
-        TextEditingController(text: config.dnsConfig.fallbackServers.join(', '));
-    final dohUrlCtrl =
-        TextEditingController(text: config.dnsConfig.dohUrl);
-    final dotCtrl =
-        TextEditingController(text: config.dnsConfig.dotServer);
+    final serversCtrl = TextEditingController(
+      text: config.dnsConfig.servers.join(', '),
+    );
+    final fallbackCtrl = TextEditingController(
+      text: config.dnsConfig.fallbackServers.join(', '),
+    );
+    final dohUrlCtrl = TextEditingController(text: config.dnsConfig.dohUrl);
+    final dotCtrl = TextEditingController(text: config.dnsConfig.dotServer);
     var remoteResolve = config.dnsConfig.remoteResolve;
 
     showDialog(
@@ -257,10 +427,9 @@ class SettingsScreen extends StatelessWidget {
                     isDense: true,
                   ),
                   items: DnsMode.values
-                      .map((m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(m.label),
-                          ))
+                      .map(
+                        (m) => DropdownMenuItem(value: m, child: Text(m.label)),
+                      )
                       .toList(),
                   onChanged: (v) {
                     if (v != null) setDialogState(() => dnsMode = v);
@@ -314,8 +483,10 @@ class SettingsScreen extends StatelessWidget {
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     title: const Text('远程解析'),
-                    subtitle: const Text('通过代理服务器解析 DNS',
-                        style: TextStyle(fontSize: 10)),
+                    subtitle: const Text(
+                      '通过代理服务器解析 DNS',
+                      style: TextStyle(fontSize: 10),
+                    ),
                     value: remoteResolve,
                     onChanged: (v) {
                       setDialogState(() => remoteResolve = v);
@@ -342,24 +513,26 @@ class SettingsScreen extends StatelessWidget {
                     .map((s) => s.trim())
                     .where((s) => s.isNotEmpty)
                     .toList();
-                context.read<ProxyService>().updateConfig(config.copyWith(
-                      dnsConfig: DnsConfig(
-                        mode: dnsMode,
-                        servers: servers.isNotEmpty
-                            ? servers
-                            : const ['8.8.8.8', '1.1.1.1'],
-                        fallbackServers: fallback.isNotEmpty
-                            ? fallback
-                            : const ['223.5.5.5', '119.29.29.29'],
-                        remoteResolve: remoteResolve,
-                        dohUrl: dohUrlCtrl.text.isEmpty
-                            ? 'https://dns.google/dns-query'
-                            : dohUrlCtrl.text,
-                        dotServer: dotCtrl.text.isEmpty
-                            ? 'dns.google'
-                            : dotCtrl.text,
-                      ),
-                    ));
+                context.read<ProxyService>().updateConfig(
+                  config.copyWith(
+                    dnsConfig: DnsConfig(
+                      mode: dnsMode,
+                      servers: servers.isNotEmpty
+                          ? servers
+                          : const ['8.8.8.8', '1.1.1.1'],
+                      fallbackServers: fallback.isNotEmpty
+                          ? fallback
+                          : const ['223.5.5.5', '119.29.29.29'],
+                      remoteResolve: remoteResolve,
+                      dohUrl: dohUrlCtrl.text.isEmpty
+                          ? 'https://dns.google/dns-query'
+                          : dohUrlCtrl.text,
+                      dotServer: dotCtrl.text.isEmpty
+                          ? 'dns.google'
+                          : dotCtrl.text,
+                    ),
+                  ),
+                );
                 Navigator.pop(ctx);
               },
               child: const Text('保存'),
@@ -429,13 +602,15 @@ class SettingsScreen extends StatelessWidget {
             onPressed: () {
               final socks = int.tryParse(socksCtrl.text) ?? config.socksPort;
               final http = int.tryParse(httpCtrl.text) ?? config.httpPort;
-              context.read<ProxyService>().updateConfig(config.copyWith(
-                    localAddress: addrCtrl.text.isEmpty
-                        ? config.localAddress
-                        : addrCtrl.text,
-                    socksPort: socks.clamp(1, 65535),
-                    httpPort: http.clamp(1, 65535),
-                  ));
+              context.read<ProxyService>().updateConfig(
+                config.copyWith(
+                  localAddress: addrCtrl.text.isEmpty
+                      ? config.localAddress
+                      : addrCtrl.text,
+                  socksPort: socks.clamp(1, 65535),
+                  httpPort: http.clamp(1, 65535),
+                ),
+              );
               Navigator.pop(ctx);
             },
             child: const Text('保存'),
@@ -447,6 +622,198 @@ class SettingsScreen extends StatelessWidget {
 
   void _showThemePicker(BuildContext context) {
     MyApp.toggleThemeOf(context);
+  }
+
+  Future<void> _onTunToggle(
+    BuildContext context,
+    ProxyService proxyService,
+    bool enable,
+  ) async {
+    if (!enable) {
+      proxyService.toggleTun(false);
+      return;
+    }
+
+    if (proxyService.isKernelInstalled()) {
+      proxyService.toggleTun(true);
+      return;
+    }
+
+    final kernelType = proxyService.activeKernelType;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.vpn_lock, size: 32),
+        title: const Text('需要安装内核'),
+        content: Text('TUN 模式需要 ${kernelType.label} 内核支持。当前未检测到已安装的内核，是否前往安装？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cancel'),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'install'),
+            child: const Text('前往安装'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'install' && context.mounted) {
+      final kernelType = proxyService.activeKernelType;
+      final kernelManager = proxyService.kernelManager;
+      final installed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _SettingsKernelInstallScreen(
+            kernelType: kernelType,
+            kernelManager: kernelManager,
+          ),
+        ),
+      );
+
+      if (installed == true && context.mounted) {
+        proxyService.toggleTun(true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('TUN 模式已开启'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+}
+
+class _SettingsKernelInstallScreen extends StatefulWidget {
+  final KernelType kernelType;
+  final KernelManager kernelManager;
+
+  const _SettingsKernelInstallScreen({
+    required this.kernelType,
+    required this.kernelManager,
+  });
+
+  @override
+  State<_SettingsKernelInstallScreen> createState() =>
+      _SettingsKernelInstallScreenState();
+}
+
+class _SettingsKernelInstallScreenState
+    extends State<_SettingsKernelInstallScreen> {
+  bool _downloading = false;
+  double? _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _startDownload();
+  }
+
+  Future<void> _startDownload() async {
+    setState(() {
+      _downloading = true;
+      _progress = null;
+    });
+
+    widget.kernelManager.addListener(_onManagerUpdate);
+
+    try {
+      await widget.kernelManager.downloadKernel(widget.kernelType);
+      if (mounted) {
+        widget.kernelManager.removeListener(_onManagerUpdate);
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        widget.kernelManager.removeListener(_onManagerUpdate);
+        setState(() => _downloading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('下载失败: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _onManagerUpdate() {
+    if (mounted) {
+      setState(() {
+        _progress = widget.kernelManager.downloadProgress;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.kernelManager.removeListener(_onManagerUpdate);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(title: Text('安装 ${widget.kernelType.label}')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.download,
+                size: 64,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _downloading
+                    ? '正在下载 ${widget.kernelType.label} 内核...'
+                    : '准备下载...',
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 16),
+              if (_downloading) ...[
+                SizedBox(
+                  width: 280,
+                  child: LinearProgressIndicator(value: _progress),
+                ),
+                const SizedBox(height: 8),
+                if (_progress != null)
+                  Text(
+                    '${(_progress! * 100).toStringAsFixed(1)}%',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 24),
+              Text(
+                '下载完成后将自动返回并开启 TUN 模式',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (!_downloading)
+                FilledButton.icon(
+                  onPressed: _startDownload,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重试'),
+                ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

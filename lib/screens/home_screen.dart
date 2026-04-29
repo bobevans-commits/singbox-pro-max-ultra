@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/config.dart';
+import '../services/kernel_manager.dart';
 import '../services/proxy_service.dart';
+import '../services/subscription_service.dart';
 import '../utils/app_utils.dart';
 import 'settings_screen.dart';
 
@@ -36,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final proxyService = context.watch<ProxyService>();
+    final subService = context.watch<SubscriptionService>();
     final isRunning = proxyService.isRunning;
     final activeNode = proxyService.activeNode;
 
@@ -51,11 +54,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   _StatusHero(
                     isRunning: isRunning,
                     activeNode: activeNode,
+                    nodeCount: proxyService.nodes.length,
                     onToggle: () {
                       if (isRunning) {
                         proxyService.stop();
                       } else if (activeNode != null) {
                         proxyService.start(activeNode);
+                      } else if (proxyService.nodes.isNotEmpty) {
+                        proxyService.start(proxyService.nodes.first);
                       }
                     },
                   ),
@@ -94,6 +100,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     _SpeedChart(proxyService: proxyService),
                     const SizedBox(height: 8),
                   ],
+                  _OverviewBar(
+                    nodeCount: proxyService.nodes.length,
+                    ruleCount: proxyService.routingRules.length,
+                    subCount: subService.subscriptions.length,
+                    kernelLabel: proxyService.config.kernelType.label,
+                  ),
+                  const SizedBox(height: 8),
                   _QuickSettings(proxyService: proxyService),
                   const SizedBox(height: 8),
                   _ConnectionGrid(proxyService: proxyService),
@@ -110,11 +123,13 @@ class _HomeScreenState extends State<HomeScreen> {
 class _StatusHero extends StatelessWidget {
   final bool isRunning;
   final NodeConfig? activeNode;
+  final int nodeCount;
   final VoidCallback onToggle;
 
   const _StatusHero({
     required this.isRunning,
     this.activeNode,
+    required this.nodeCount,
     required this.onToggle,
   });
 
@@ -170,7 +185,9 @@ class _StatusHero extends StatelessWidget {
                     ),
                   if (activeNode == null && !isRunning)
                     Text(
-                      '选择节点开始使用',
+                      nodeCount > 0
+                          ? '点击启动连接 $nodeCount 个节点'
+                          : '添加节点开始使用',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: colorScheme.outline,
                       ),
@@ -198,6 +215,107 @@ class _StatusHero extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _OverviewBar extends StatelessWidget {
+  final int nodeCount;
+  final int ruleCount;
+  final int subCount;
+  final String kernelLabel;
+
+  const _OverviewBar({
+    required this.nodeCount,
+    required this.ruleCount,
+    required this.subCount,
+    required this.kernelLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            _OverviewChip(
+              icon: Icons.dns,
+              label: '节点',
+              value: '$nodeCount',
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            _OverviewChip(
+              icon: Icons.route,
+              label: '规则',
+              value: '$ruleCount',
+              color: theme.colorScheme.tertiary,
+            ),
+            const SizedBox(width: 12),
+            _OverviewChip(
+              icon: Icons.rss_feed,
+              label: '订阅',
+              value: '$subCount',
+              color: theme.colorScheme.secondary,
+            ),
+            const SizedBox(width: 12),
+            _OverviewChip(
+              icon: Icons.memory,
+              label: '内核',
+              value: kernelLabel,
+              color: theme.colorScheme.outline,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _OverviewChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Expanded(
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.outline,
+              fontSize: 9,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -494,6 +612,63 @@ class _QuickSettings extends StatelessWidget {
 
   const _QuickSettings({required this.proxyService});
 
+  Future<void> _onTunToggle(BuildContext context, bool enable) async {
+    if (!enable) {
+      proxyService.toggleTun(false);
+      return;
+    }
+
+    if (proxyService.isKernelInstalled()) {
+      proxyService.toggleTun(true);
+      return;
+    }
+
+    final kernelType = proxyService.activeKernelType;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.vpn_lock, size: 32),
+        title: const Text('需要安装内核'),
+        content: Text(
+          'TUN 模式需要 ${kernelType.label} 内核支持。当前未检测到已安装的内核，是否前往安装？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cancel'),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'install'),
+            child: const Text('前往安装'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'install' && context.mounted) {
+      final kernelManager = proxyService.kernelManager;
+      final installed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _KernelInstallScreen(
+            kernelType: kernelType,
+            kernelManager: kernelManager,
+          ),
+        ),
+      );
+
+      if (installed == true && context.mounted) {
+        proxyService.toggleTun(true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('TUN 模式已开启'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -565,9 +740,7 @@ class _QuickSettings extends StatelessWidget {
                 ),
               ),
               value: config.tunEnabled,
-              onChanged: (v) {
-                proxyService.updateConfig(config.copyWith(tunEnabled: v));
-              },
+              onChanged: (v) => _onTunToggle(context, v),
             ),
             const Divider(height: 1, indent: 32),
             SwitchListTile(
@@ -587,9 +760,7 @@ class _QuickSettings extends StatelessWidget {
                 ),
               ),
               value: config.systemProxy,
-              onChanged: (v) {
-                proxyService.updateConfig(config.copyWith(systemProxy: v));
-              },
+              onChanged: (v) => proxyService.setSystemProxy(v),
             ),
           ],
         ),
@@ -734,4 +905,132 @@ class _ConnItem {
   final Color? valueColor;
 
   const _ConnItem(this.icon, this.label, this.value, {this.valueColor});
+}
+
+class _KernelInstallScreen extends StatefulWidget {
+  final KernelType kernelType;
+  final KernelManager kernelManager;
+
+  const _KernelInstallScreen({
+    required this.kernelType,
+    required this.kernelManager,
+  });
+
+  @override
+  State<_KernelInstallScreen> createState() => _KernelInstallScreenState();
+}
+
+class _KernelInstallScreenState extends State<_KernelInstallScreen> {
+  bool _downloading = false;
+  double? _progress;
+
+  @override
+  void initState() {
+    super.initState();
+    _startDownload();
+  }
+
+  Future<void> _startDownload() async {
+    setState(() {
+      _downloading = true;
+      _progress = null;
+    });
+
+    widget.kernelManager.addListener(_onManagerUpdate);
+
+    try {
+      await widget.kernelManager.downloadKernel(widget.kernelType);
+      if (mounted) {
+        widget.kernelManager.removeListener(_onManagerUpdate);
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        widget.kernelManager.removeListener(_onManagerUpdate);
+        setState(() => _downloading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('下载失败: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _onManagerUpdate() {
+    if (mounted) {
+      setState(() {
+        _progress = widget.kernelManager.downloadProgress;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.kernelManager.removeListener(_onManagerUpdate);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(title: Text('安装 ${widget.kernelType.label}')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.download,
+                size: 64,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _downloading ? '正在下载 ${widget.kernelType.label} 内核...' : '准备下载...',
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 16),
+              if (_downloading) ...[
+                SizedBox(
+                  width: 280,
+                  child: LinearProgressIndicator(value: _progress),
+                ),
+                const SizedBox(height: 8),
+                if (_progress != null)
+                  Text(
+                    '${(_progress! * 100).toStringAsFixed(1)}%',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 24),
+              Text(
+                '下载完成后将自动返回并开启 TUN 模式',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (!_downloading)
+                FilledButton.icon(
+                  onPressed: _startDownload,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重试'),
+                ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

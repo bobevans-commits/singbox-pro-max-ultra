@@ -389,6 +389,13 @@ class ConfigAdapter {
       'bind-address': proxyConfig.lanSharing ? '*' : '127.0.0.1',
       'mode': 'rule',
       'log-level': 'info',
+      if (proxyConfig.tunEnabled)
+        'tun': {
+          'enable': true,
+          'stack': 'system',
+          'auto-route': true,
+          'auto-detect-interface': true,
+        },
       if (proxies.isNotEmpty) 'proxies': proxies,
       'proxy-groups': [
         {
@@ -584,6 +591,22 @@ class ConfigAdapter {
           'listen': listenAddr,
           'port': proxyConfig.httpPort,
         },
+        if (proxyConfig.tunEnabled)
+          {
+            'tag': 'tun',
+            'protocol': 'dokodemo-door',
+            'listen': '0.0.0.0',
+            'port': 0,
+            'settings': {
+              'network': 'tcp,udp',
+              'followRedirect': true,
+            },
+            'streamSettings': {
+              'sockopt': {
+                'tproxy': 'tun',
+              },
+            },
+          },
       ],
       'outbounds': outbounds,
       'routing': {

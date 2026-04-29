@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 
 import '../models/config.dart';
 import '../utils/config_adapter.dart';
+import 'config_storage_service.dart';
 import 'kernel_manager.dart';
+import 'system_proxy_service.dart';
 
 enum ProxyState {
   stopped,
@@ -17,6 +19,8 @@ enum ProxyState {
 
 class ProxyService extends ChangeNotifier {
   final KernelManager _kernelManager;
+  final ConfigStorageService _storage;
+
   ProxyState _state = ProxyState.stopped;
   ProxyConfig _config = ProxyConfig();
   NodeConfig? _activeNode;
@@ -32,6 +36,7 @@ class ProxyService extends ChangeNotifier {
       StreamController<String>.broadcast();
   int? _latencyMs;
   List<RoutingRule> _routingRules = [];
+  List<NodeConfig> _nodes = [];
   Timer? _speedTimer;
   final List<SpeedRecord> _speedHistory = [];
 
@@ -46,13 +51,21 @@ class ProxyService extends ChangeNotifier {
   List<String> get logs => List.unmodifiable(_logs);
   Stream<String> get logStream => _logController.stream;
   int? get latencyMs => _latencyMs;
-  List<RoutingRule> get routingRules => _routingRules;
+  List<RoutingRule> get routingRules => List.unmodifiable(_routingRules);
+  List<NodeConfig> get nodes => List.unmodifiable(_nodes);
   List<SpeedRecord> get speedHistory => List.unmodifiable(_speedHistory);
 
-  ProxyService(this._kernelManager) {
+  ProxyService(this._kernelManager, this._storage) {
     _speedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       _updateSpeed();
     });
+  }
+
+  Future<void> init() async {
+    _config = _storage.loadProxyConfig();
+    _nodes = _storage.loadNodes();
+    _routingRules = _storage.loadRoutingRules();
+    notifyListeners();
   }
 
   void _updateSpeed() {
@@ -75,18 +88,139 @@ class ProxyService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- Config ----
+
   void updateConfig(ProxyConfig config) {
     _config = config;
+    _storage.saveProxyConfig(config);
     notifyListeners();
   }
+
+  bool isKernelInstalled() {
+    return _kernelManager.isInstalled(_config.kernelType);
+  }
+
+  KernelType get activeKernelType => _config.kernelType;
+
+  KernelManager get kernelManager => _kernelManager;
+
+  Future<void> toggleTun(bool enable) async {
+    if (enable && !isKernelInstalled()) {
+      return;
+    }
+
+    final wasRunning = isRunning;
+    final currentNode = _activeNode;
+
+    updateConfig(_config.copyWith(tunEnabled: enable));
+
+    if (wasRunning && currentNode != null) {
+      await restart(currentNode);
+    }
+  }
+
+  // ---- Nodes ----
+
+  void addNode(NodeConfig node) {
+    _nodes.add(node);
+    _storage.saveNodes(_nodes);
+    notifyListeners();
+  }
+
+  void addNodes(List<NodeConfig> newNodes) {
+    final existingIds = _nodes.map((n) => '${n.address}:${n.port}:${n.protocol.name}').toSet();
+    for (final node in newNodes) {
+      final key = '${node.address}:${node.port}:${node.protocol.name}';
+      if (!existingIds.contains(key)) {
+        _nodes.add(node);
+        existingIds.add(key);
+      }
+    }
+    _storage.saveNodes(_nodes);
+    notifyListeners();
+  }
+
+  void updateNode(NodeConfig node) {
+    final index = _nodes.indexWhere((n) => n.id == node.id);
+    if (index >= 0) {
+      _nodes[index] = node;
+      _storage.saveNodes(_nodes);
+      notifyListeners();
+    }
+  }
+
+  void deleteNode(String id) {
+    _nodes.removeWhere((n) => n.id == id);
+    _storage.saveNodes(_nodes);
+    notifyListeners();
+  }
+
+  void clearNodes() {
+    _nodes.clear();
+    _storage.saveNodes(_nodes);
+    notifyListeners();
+  }
+
+  // ---- Routing Rules ----
 
   void updateRoutingRules(List<RoutingRule> rules) {
     _routingRules = rules;
+    _storage.saveRoutingRules(rules);
     notifyListeners();
   }
 
+  void addRoutingRule(RoutingRule rule) {
+    _routingRules.add(rule);
+    _storage.saveRoutingRules(_routingRules);
+    notifyListeners();
+  }
+
+  void deleteRoutingRule(String id) {
+    _routingRules.removeWhere((r) => r.id == id);
+    _storage.saveRoutingRules(_routingRules);
+    notifyListeners();
+  }
+
+  // ---- Import/Export ----
+
+  Future<String> exportConfig() async {
+    return _storage.exportConfig();
+  }
+
+  Future<bool> importConfig(String jsonStr) async {
+    final result = await _storage.importConfig(jsonStr);
+    if (result) {
+      await init();
+    }
+    return result;
+  }
+
+  // ---- Smart Node ----
+
+  Future<NodeConfig?> _pickSmartNode() async {
+    if (_nodes.isEmpty) return null;
+
+    final untested =
+        _nodes.where((n) => n.latencyMs == null).toList();
+    if (untested.isNotEmpty) {
+      await testAllLatency(untested);
+    }
+
+    return findBestNode(_nodes);
+  }
+
+  // ---- Proxy Control ----
+
   Future<void> start(NodeConfig node) async {
     if (_state == ProxyState.running || _state == ProxyState.starting) return;
+
+    if (_config.smartNode) {
+      final best = await _pickSmartNode();
+      if (best != null) {
+        node = best;
+        _addLog('[ProxyService] Smart node selected: ${node.name}');
+      }
+    }
 
     _activeNode = node;
     _state = ProxyState.starting;
@@ -142,6 +276,9 @@ class ProxyService extends ChangeNotifier {
         _state = ProxyState.running;
         _addLog('[ProxyService] Proxy started successfully');
         testLatency(node);
+        if (_config.systemProxy) {
+          await _applySystemProxy();
+        }
       } else {
         _addLog(
             '[ProxyService] Process exited immediately with code $exitCode');
@@ -177,6 +314,11 @@ class ProxyService extends ChangeNotifier {
     _activeNode = null;
     _uploadSpeed = 0;
     _downloadSpeed = 0;
+
+    if (_config.systemProxy) {
+      await _removeSystemProxy();
+    }
+
     _addLog('[ProxyService] Proxy stopped');
     notifyListeners();
   }
@@ -344,7 +486,42 @@ class ProxyService extends ChangeNotifier {
     _speedTimer?.cancel();
     _logController.close();
     _process?.kill();
+    if (_config.systemProxy) {
+      _removeSystemProxy();
+    }
     super.dispose();
+  }
+
+  Future<void> _applySystemProxy() async {
+    try {
+      await SystemProxyService.enable(
+        host: _config.localAddress,
+        httpPort: _config.httpPort,
+        socksPort: _config.socksPort,
+      );
+      _addLog('[ProxyService] System proxy enabled');
+    } catch (e) {
+      _addLog('[ProxyService] Failed to enable system proxy: $e');
+    }
+  }
+
+  Future<void> _removeSystemProxy() async {
+    try {
+      await SystemProxyService.disable();
+      _addLog('[ProxyService] System proxy disabled');
+    } catch (e) {
+      _addLog('[ProxyService] Failed to disable system proxy: $e');
+    }
+  }
+
+  Future<void> setSystemProxy(bool enable) async {
+    updateConfig(_config.copyWith(systemProxy: enable));
+
+    if (enable && isRunning) {
+      await _applySystemProxy();
+    } else if (!enable) {
+      await _removeSystemProxy();
+    }
   }
 }
 

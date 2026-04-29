@@ -21,33 +21,43 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            title: const Text('内核管理'),
-          ),
+          SliverAppBar(title: const Text('内核管理')),
           if (kernelManager.error != null)
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 child: Card(
                   color: theme.colorScheme.errorContainer,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     child: Row(
                       children: [
-                        Icon(Icons.error_outline, size: 18,
-                            color: theme.colorScheme.onErrorContainer),
+                        Icon(
+                          Icons.error_outline,
+                          size: 18,
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             kernelManager.error!,
                             style: TextStyle(
-                                color: theme.colorScheme.onErrorContainer),
+                              color: theme.colorScheme.onErrorContainer,
+                            ),
                           ),
                         ),
                         IconButton(
-                          icon: Icon(Icons.close,
-                              color: theme.colorScheme.onErrorContainer,
-                              size: 18),
+                          icon: Icon(
+                            Icons.close,
+                            color: theme.colorScheme.onErrorContainer,
+                            size: 18,
+                          ),
                           onPressed: () {
                             kernelManager.clearError();
                           },
@@ -64,11 +74,17 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline, size: 18,
-                          color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -85,30 +101,28 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
             ),
           ),
           SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final type = KernelType.values[index];
-                final status = kernelManager.getStatus(type);
-                final version = kernelManager.getVersion(type);
-                final isInstalled = kernelManager.isInstalled(type);
-                final progress = kernelManager.downloadProgress;
+            delegate: SliverChildBuilderDelegate((context, index) {
+              final type = KernelType.values[index];
+              final status = kernelManager.getStatus(type);
+              final version = kernelManager.getVersion(type);
+              final isInstalled = kernelManager.isInstalled(type);
+              final progress = kernelManager.downloadProgress;
 
-                return _KernelCard(
-                  type: type,
-                  status: status,
-                  version: version,
-                  isInstalled: isInstalled,
-                  downloadProgress:
-                      status == KernelStatus.downloading ? progress : null,
-                  onDownload: () => _downloadKernel(kernelManager, type),
-                  onDownloadVersion: () =>
-                      _showVersionPicker(kernelManager, type),
-                  onDelete: () => _deleteKernel(kernelManager, type),
-                  onCheckUpdate: () => _checkUpdate(kernelManager, type),
-                );
-              },
-              childCount: KernelType.values.length,
-            ),
+              return _KernelCard(
+                type: type,
+                status: status,
+                version: version,
+                isInstalled: isInstalled,
+                downloadProgress: status == KernelStatus.downloading
+                    ? progress
+                    : null,
+                onDownload: () => _downloadKernel(kernelManager, type),
+                onDownloadVersion: () =>
+                    _showVersionPicker(kernelManager, type),
+                onDelete: () => _deleteKernel(kernelManager, type),
+                onCheckUpdate: () => _checkUpdate(kernelManager, type),
+              );
+            }, childCount: KernelType.values.length),
           ),
           const SliverPadding(padding: EdgeInsets.only(bottom: 16)),
         ],
@@ -116,28 +130,31 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
     );
   }
 
-  Future<void> _downloadKernel(KernelManager manager, KernelType type,
-      {String? version}) async {
+  Future<void> _downloadKernel(
+    KernelManager manager,
+    KernelType type, {
+    String? version,
+  }) async {
     try {
       await manager.downloadKernel(type, version: version);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${type.label} v${version ?? "最新版"} 安装成功'),
-          ),
+          SnackBar(content: Text('${type.label} v${version ?? "最新版"} 安装成功')),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载失败: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('下载失败: $e')));
       }
     }
   }
 
   Future<void> _showVersionPicker(
-      KernelManager manager, KernelType type) async {
+    KernelManager manager,
+    KernelType type,
+  ) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -162,9 +179,9 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
     Navigator.pop(context);
 
     if (releases.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法获取版本列表，请检查网络连接')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法获取版本列表，请检查网络连接')));
       return;
     }
 
@@ -205,17 +222,17 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
     if (confirmed == true) {
       await manager.deleteKernel(type);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${type.label} 已删除')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${type.label} 已删除')));
       }
     }
   }
 
   Future<void> _checkUpdate(KernelManager manager, KernelType type) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('正在检查更新...')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('正在检查更新...')));
 
     final latestVersion = await manager.getLatestVersion(type);
     final currentVersion = manager.getVersion(type);
@@ -223,9 +240,9 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
     if (!mounted) return;
 
     if (latestVersion.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法获取最新版本信息')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法获取最新版本信息')));
       return;
     }
 
@@ -288,18 +305,24 @@ class _VersionPickerDialog extends StatelessWidget {
 
             return ListTile(
               leading: isCurrent
-                  ? const Icon(Icons.check_circle,
-                      color: Colors.green, size: 20)
-                  : Icon(Icons.new_releases_outlined,
+                  ? const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 20,
+                    )
+                  : Icon(
+                      Icons.new_releases_outlined,
                       color: index == 0 ? theme.colorScheme.primary : null,
-                      size: 20),
+                      size: 20,
+                    ),
               title: Row(
                 children: [
                   Text(
                     release.tagName,
                     style: TextStyle(
-                      fontWeight:
-                          index == 0 ? FontWeight.bold : FontWeight.normal,
+                      fontWeight: index == 0
+                          ? FontWeight.bold
+                          : FontWeight.normal,
                     ),
                   ),
                   if (index == 0)
@@ -307,7 +330,9 @@ class _VersionPickerDialog extends StatelessWidget {
                       padding: const EdgeInsets.only(left: 8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.colorScheme.primaryContainer,
                           borderRadius: BorderRadius.circular(4),
@@ -326,17 +351,16 @@ class _VersionPickerDialog extends StatelessWidget {
                       padding: const EdgeInsets.only(left: 8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.green.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: const Text(
                           '已安装',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.green,
-                          ),
+                          style: TextStyle(fontSize: 10, color: Colors.green),
                         ),
                       ),
                     ),
@@ -430,8 +454,8 @@ class _KernelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final statusColor = _statusColor(context);
-    final isWorking = status == KernelStatus.downloading ||
-        status == KernelStatus.installing;
+    final isWorking =
+        status == KernelStatus.downloading || status == KernelStatus.installing;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
@@ -442,8 +466,7 @@ class _KernelCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(_kernelIcon(),
-                    size: 22, color: theme.colorScheme.primary),
+                Icon(_kernelIcon(), size: 22, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -453,8 +476,9 @@ class _KernelCard extends StatelessWidget {
                         children: [
                           Text(
                             type.label,
-                            style: theme.textTheme.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Container(
@@ -497,9 +521,7 @@ class _KernelCard extends StatelessWidget {
             ),
             if (isWorking) ...[
               const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: downloadProgress,
-              ),
+              LinearProgressIndicator(value: downloadProgress),
               if (downloadProgress != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
@@ -510,8 +532,7 @@ class _KernelCard extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (downloadProgress == null &&
-                  status == KernelStatus.installing)
+              if (downloadProgress == null && status == KernelStatus.installing)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Text(
@@ -534,14 +555,16 @@ class _KernelCard extends StatelessWidget {
                       icon: const Icon(Icons.download, size: 16),
                       label: const Text('安装'),
                       style: FilledButton.styleFrom(
-                          visualDensity: VisualDensity.compact),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                     OutlinedButton.icon(
                       onPressed: onDownloadVersion,
                       icon: const Icon(Icons.list, size: 16),
                       label: const Text('选择版本'),
                       style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                   ],
                   if (isInstalled) ...[
@@ -550,14 +573,16 @@ class _KernelCard extends StatelessWidget {
                       icon: const Icon(Icons.update, size: 16),
                       label: const Text('更新'),
                       style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                     OutlinedButton.icon(
                       onPressed: onDownloadVersion,
                       icon: const Icon(Icons.history, size: 16),
                       label: const Text('其他版本'),
                       style: OutlinedButton.styleFrom(
-                          visualDensity: VisualDensity.compact),
+                        visualDensity: VisualDensity.compact,
+                      ),
                     ),
                     OutlinedButton.icon(
                       onPressed: onDelete,

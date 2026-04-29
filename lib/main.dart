@@ -24,8 +24,11 @@ void main() async {
   final kernelManager = KernelManager();
   await kernelManager.init();
 
-  final proxyService = ProxyService(kernelManager);
+  final proxyService = ProxyService(kernelManager, configStorage);
+  await proxyService.init();
+
   final subscriptionService = SubscriptionService(configStorage);
+  await subscriptionService.init();
 
   runApp(
     MultiProvider(
@@ -102,9 +105,6 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
-  final List<NodeConfig> _nodes = [];
-  List<RoutingRule> _routingRules = [];
-  ConfigStorageService? _storage;
 
   final _screens = const [
     HomeScreen(),
@@ -112,52 +112,6 @@ class _MainNavigationState extends State<MainNavigation> {
     LogScreen(),
     SettingsScreen(),
   ];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadConfig();
-  }
-
-  Future<void> _loadConfig() async {
-    final storage = ConfigStorageService();
-    await storage.init();
-    _storage = storage;
-    setState(() {
-      _nodes.addAll(storage.loadNodes());
-      _routingRules = storage.loadRoutingRules();
-    });
-  }
-
-  Future<void> _saveNodes() async {
-    final storage = _storage ??= ConfigStorageService();
-    if (!storage.isInitialized) await storage.init();
-    await storage.saveNodes(_nodes);
-  }
-
-  Future<void> _saveRoutingRules() async {
-    final storage = _storage ??= ConfigStorageService();
-    if (!storage.isInitialized) await storage.init();
-    await storage.saveRoutingRules(_routingRules);
-  }
-
-  void _addNode(NodeConfig node) {
-    setState(() => _nodes.add(node));
-    _saveNodes();
-  }
-
-  void _updateNode(NodeConfig node) {
-    final index = _nodes.indexWhere((n) => n.id == node.id);
-    if (index >= 0) {
-      setState(() => _nodes[index] = node);
-      _saveNodes();
-    }
-  }
-
-  void _deleteNode(String id) {
-    setState(() => _nodes.removeWhere((n) => n.id == id));
-    _saveNodes();
-  }
 
   void _showNodeList() {
     showModalBottomSheet(
@@ -170,26 +124,10 @@ class _MainNavigationState extends State<MainNavigation> {
         maxChildSize: 0.95,
         expand: false,
         builder: (ctx, controller) => _NodeListSheet(
-          nodes: _nodes,
           scrollController: controller,
           onAdd: () {
             Navigator.pop(ctx);
             _showAddNodeOptions();
-          },
-          onEdit: (node) {
-            Navigator.pop(ctx);
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    NodeEditorScreen(node: node, onSave: _updateNode),
-              ),
-            );
-          },
-          onDelete: _deleteNode,
-          onConnect: (node) {
-            Navigator.pop(ctx);
-            context.read<ProxyService>().start(node);
           },
         ),
       ),
@@ -211,7 +149,11 @@ class _MainNavigationState extends State<MainNavigation> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => NodeEditorScreen(onSave: _addNode),
+                    builder: (_) => NodeEditorScreen(
+                      onSave: (node) {
+                        context.read<ProxyService>().addNode(node);
+                      },
+                    ),
                   ),
                 );
               },
@@ -224,7 +166,11 @@ class _MainNavigationState extends State<MainNavigation> {
                 showModalBottomSheet(
                   context: context,
                   isScrollControlled: true,
-                  builder: (_) => ProxyLinkImporter(onImport: _addNode),
+                  builder: (_) => ProxyLinkImporter(
+                    onImport: (node) {
+                      context.read<ProxyService>().addNode(node);
+                    },
+                  ),
                 );
               },
             ),
@@ -244,6 +190,8 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    final proxyService = context.watch<ProxyService>();
+
     return Scaffold(
       body: _screens[_currentIndex],
       bottomNavigationBar: NavigationBar(
@@ -281,17 +229,15 @@ class _MainNavigationState extends State<MainNavigation> {
             context,
             MaterialPageRoute(
               builder: (_) => RoutingEditorScreen(
-                rules: _routingRules,
+                rules: proxyService.routingRules,
                 onSave: (rules) {
-                  setState(() => _routingRules = rules);
-                  _saveRoutingRules();
+                  proxyService.updateRoutingRules(rules);
                 },
               ),
             ),
           );
         },
         onOpenNodeList: _showNodeList,
-        nodes: _nodes,
       ),
       floatingActionButton: _currentIndex == 0
           ? FloatingActionButton(
@@ -307,13 +253,11 @@ class _AppDrawer extends StatelessWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback onOpenRouting;
   final VoidCallback onOpenNodeList;
-  final List<NodeConfig> nodes;
 
   const _AppDrawer({
     required this.onToggleTheme,
     required this.onOpenRouting,
     required this.onOpenNodeList,
-    required this.nodes,
   });
 
   @override
@@ -330,7 +274,7 @@ class _AppDrawer extends StatelessWidget {
         const Divider(),
         ListTile(
           leading: const Icon(Icons.list),
-          title: Text('节点列表 (${nodes.length})'),
+          title: Text('节点列表 (${proxyService.nodes.length})'),
           subtitle: proxyService.activeNode != null
               ? Text(
                   '当前: ${proxyService.activeNode!.name}',
@@ -344,7 +288,7 @@ class _AppDrawer extends StatelessWidget {
         ),
         ListTile(
           leading: const Icon(Icons.route),
-          title: const Text('路由规则'),
+          title: Text('路由规则 (${proxyService.routingRules.length})'),
           onTap: () {
             Navigator.pop(context);
             onOpenRouting();
@@ -382,52 +326,158 @@ class _AppDrawer extends StatelessWidget {
   }
 }
 
-class _NodeListSheet extends StatelessWidget {
-  final List<NodeConfig> nodes;
+class _NodeListSheet extends StatefulWidget {
   final ScrollController scrollController;
   final VoidCallback onAdd;
-  final void Function(NodeConfig) onEdit;
-  final void Function(String) onDelete;
-  final void Function(NodeConfig) onConnect;
 
   const _NodeListSheet({
-    required this.nodes,
     required this.scrollController,
     required this.onAdd,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onConnect,
   });
+
+  @override
+  State<_NodeListSheet> createState() => _NodeListSheetState();
+}
+
+class _NodeListSheetState extends State<_NodeListSheet> {
+  _NodeSortMode _sortMode = _NodeSortMode.defaultOrder;
+  ProxyProtocol? _filterProtocol;
+  bool _groupByProtocol = false;
+
+  List<NodeConfig> _applySortAndFilter(List<NodeConfig> nodes) {
+    var filtered = _filterProtocol != null
+        ? nodes.where((n) => n.protocol == _filterProtocol).toList()
+        : nodes.toList();
+
+    switch (_sortMode) {
+      case _NodeSortMode.defaultOrder:
+        break;
+      case _NodeSortMode.latencyAsc:
+        filtered.sort((a, b) {
+          final la = a.latencyMs ?? 99999;
+          final lb = b.latencyMs ?? 99999;
+          return la.compareTo(lb);
+        });
+      case _NodeSortMode.latencyDesc:
+        filtered.sort((a, b) {
+          final la = a.latencyMs ?? -1;
+          final lb = b.latencyMs ?? -1;
+          return lb.compareTo(la);
+        });
+      case _NodeSortMode.nameAsc:
+        filtered.sort((a, b) => a.name.compareTo(b.name));
+    }
+
+    return filtered;
+  }
+
+  Map<ProxyProtocol, List<NodeConfig>> _groupByProtocolFn(List<NodeConfig> nodes) {
+    final map = <ProxyProtocol, List<NodeConfig>>{};
+    for (final node in nodes) {
+      (map[node.protocol] ??= []).add(node);
+    }
+    return map;
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final proxyService = context.watch<ProxyService>();
+    final allNodes = proxyService.nodes;
+    final nodes = _applySortAndFilter(allNodes);
 
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
               Text('节点列表', style: theme.textTheme.titleLarge),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () {
-                  proxyService.testAllLatency(nodes);
-                },
-                icon: const Icon(Icons.speed, size: 18),
-                label: const Text('全部测速'),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${allNodes.length}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-              const SizedBox(width: 4),
+              const Spacer(),
+              IconButton(
+                onPressed: () {
+                  proxyService.testAllLatency(allNodes.toList());
+                },
+                icon: const Icon(Icons.speed, size: 20),
+                tooltip: '全部测速',
+              ),
+              PopupMenuButton(
+                icon: const Icon(Icons.sort, size: 20),
+                tooltip: '排序',
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(value: 'default', child: Text('默认排序')),
+                  const PopupMenuItem(value: 'latency_asc', child: Text('延迟升序')),
+                  const PopupMenuItem(value: 'latency_desc', child: Text('延迟降序')),
+                  const PopupMenuItem(value: 'name_asc', child: Text('名称排序')),
+                ],
+                onSelected: (value) {
+                  setState(() {
+                    switch (value) {
+                      case 'default':
+                        _sortMode = _NodeSortMode.defaultOrder;
+                      case 'latency_asc':
+                        _sortMode = _NodeSortMode.latencyAsc;
+                      case 'latency_desc':
+                        _sortMode = _NodeSortMode.latencyDesc;
+                      case 'name_asc':
+                        _sortMode = _NodeSortMode.nameAsc;
+                    }
+                  });
+                },
+              ),
+              IconButton(
+                onPressed: () {
+                  setState(() => _groupByProtocol = !_groupByProtocol);
+                },
+                icon: Icon(
+                  _groupByProtocol ? Icons.folder_open : Icons.folder_outlined,
+                  size: 20,
+                ),
+                tooltip: '按协议分组',
+              ),
               FilledButton.icon(
-                onPressed: onAdd,
+                onPressed: widget.onAdd,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('添加'),
               ),
             ],
           ),
         ),
+        if (_filterProtocol != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Chip(
+                  label: Text(_filterProtocol!.label),
+                  onDeleted: () => setState(() => _filterProtocol = null),
+                  visualDensity: VisualDensity.compact,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${nodes.length} 个节点',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ],
+            ),
+          ),
         const Divider(height: 1),
         Expanded(
           child: nodes.isEmpty
@@ -447,116 +497,186 @@ class _NodeListSheet extends StatelessWidget {
                           color: theme.colorScheme.outline,
                         ),
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '添加订阅或手动导入节点',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
                     ],
                   ),
                 )
-              : ListView.builder(
-                  controller: scrollController,
-                  itemCount: nodes.length,
-                  itemBuilder: (context, index) {
-                    final node = nodes[index];
-                    final isActive = proxyService.activeNode?.id == node.id;
-                    final latency = node.latencyMs;
-
-                    Color latencyColor;
-                    String latencyText;
-                    if (latency == null) {
-                      latencyColor = theme.colorScheme.outline;
-                      latencyText = '--';
-                    } else if (latency == -1) {
-                      latencyColor = Colors.red;
-                      latencyText = '超时';
-                    } else {
-                      latencyColor = Color(AppUtils.latencyColor(latency));
-                      latencyText = '${latency}ms';
-                    }
-
-                    return ListTile(
-                      leading: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            AppUtils.protocolIcon(node.protocol),
-                            style: const TextStyle(fontSize: 20),
-                          ),
-                          if (isActive) ...[
-                            const SizedBox(width: 4),
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: const BoxDecoration(
-                                color: Colors.green,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      title: Row(
-                        children: [
-                          Expanded(child: Text(node.name)),
-                          InkWell(
-                            onTap: () => proxyService.testLatency(node),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: latencyColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                latencyText,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: latencyColor,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      subtitle: Text(
-                        '${node.protocol.label} | ${node.address}:${node.port}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      trailing: PopupMenuButton(
-                        itemBuilder: (ctx) => [
-                          const PopupMenuItem(
-                            value: 'connect',
-                            child: Text('连接'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'latency',
-                            child: Text('测速'),
-                          ),
-                          const PopupMenuItem(value: 'edit', child: Text('编辑')),
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Text('删除'),
-                          ),
-                        ],
-                        onSelected: (value) {
-                          switch (value) {
-                            case 'connect':
-                              onConnect(node);
-                            case 'latency':
-                              proxyService.testLatency(node);
-                            case 'edit':
-                              onEdit(node);
-                            case 'delete':
-                              onDelete(node.id);
-                          }
-                        },
-                      ),
-                      onTap: () => onConnect(node),
-                    );
-                  },
-                ),
+              : _groupByProtocol
+                  ? _buildGroupedList(context, nodes, proxyService, theme)
+                  : _buildFlatList(context, nodes, proxyService, theme),
         ),
       ],
     );
   }
+
+  Widget _buildFlatList(
+    BuildContext context,
+    List<NodeConfig> nodes,
+    ProxyService proxyService,
+    ThemeData theme,
+  ) {
+    return ListView.builder(
+      controller: widget.scrollController,
+      itemCount: nodes.length,
+      itemBuilder: (context, index) =>
+          _buildNodeTile(context, nodes[index], proxyService, theme),
+    );
+  }
+
+  Widget _buildGroupedList(
+    BuildContext context,
+    List<NodeConfig> nodes,
+    ProxyService proxyService,
+    ThemeData theme,
+  ) {
+    final groups = _groupByProtocolFn(nodes);
+    final protocols = groups.keys.toList();
+
+    return ListView.builder(
+      controller: widget.scrollController,
+      itemCount: protocols.length,
+      itemBuilder: (context, index) {
+        final protocol = protocols[index];
+        final groupNodes = groups[protocol]!;
+        return ExpansionTile(
+          initiallyExpanded: true,
+          leading: Text(
+            AppUtils.protocolIcon(protocol),
+            style: const TextStyle(fontSize: 18),
+          ),
+          title: Text(protocol.label),
+          trailing: Text(
+            '${groupNodes.length}',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          children: groupNodes
+              .map((node) => _buildNodeTile(context, node, proxyService, theme))
+              .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildNodeTile(
+    BuildContext context,
+    NodeConfig node,
+    ProxyService proxyService,
+    ThemeData theme,
+  ) {
+    final isActive = proxyService.activeNode?.id == node.id;
+    final latency = node.latencyMs;
+
+    Color latencyColor;
+    String latencyText;
+    if (latency == null) {
+      latencyColor = theme.colorScheme.outline;
+      latencyText = '--';
+    } else if (latency == -1) {
+      latencyColor = Colors.red;
+      latencyText = '超时';
+    } else {
+      latencyColor = Color(AppUtils.latencyColor(latency));
+      latencyText = '${latency}ms';
+    }
+
+    return ListTile(
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            AppUtils.protocolIcon(node.protocol),
+            style: const TextStyle(fontSize: 20),
+          ),
+          if (isActive) ...[
+            const SizedBox(width: 4),
+            Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ],
+      ),
+      title: Row(
+        children: [
+          Expanded(child: Text(node.name)),
+          InkWell(
+            onTap: () => proxyService.testLatency(node),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: latencyColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                latencyText,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: latencyColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      subtitle: Text(
+        '${node.protocol.label} | ${node.address}:${node.port}',
+        style: theme.textTheme.bodySmall,
+      ),
+      trailing: PopupMenuButton(
+        itemBuilder: (ctx) => [
+          const PopupMenuItem(value: 'connect', child: Text('连接')),
+          const PopupMenuItem(value: 'latency', child: Text('测速')),
+          const PopupMenuItem(value: 'edit', child: Text('编辑')),
+          const PopupMenuItem(value: 'delete', child: Text('删除')),
+          const PopupMenuItem(value: 'filter', child: Text('筛选同协议')),
+        ],
+        onSelected: (value) {
+          switch (value) {
+            case 'connect':
+              proxyService.start(node);
+            case 'latency':
+              proxyService.testLatency(node);
+            case 'edit':
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NodeEditorScreen(
+                    node: node,
+                    onSave: (n) => proxyService.updateNode(n),
+                  ),
+                ),
+              );
+            case 'delete':
+              proxyService.deleteNode(node.id);
+            case 'filter':
+              setState(() => _filterProtocol = node.protocol);
+          }
+        },
+      ),
+      onTap: () => proxyService.start(node),
+    );
+  }
+}
+
+enum _NodeSortMode {
+  defaultOrder,
+  latencyAsc,
+  latencyDesc,
+  nameAsc,
 }

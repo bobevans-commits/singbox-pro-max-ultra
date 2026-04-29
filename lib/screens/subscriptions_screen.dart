@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../services/config_storage_service.dart';
+import '../services/proxy_service.dart';
 import '../services/subscription_service.dart';
 import '../utils/app_utils.dart';
 
@@ -15,16 +16,9 @@ class SubscriptionsScreen extends StatefulWidget {
 
 class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SubscriptionService>().init();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     final subService = context.watch<SubscriptionService>();
+    final proxyService = context.watch<ProxyService>();
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -53,13 +47,36 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                 ),
               ),
             ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: _SubscriptionSummary(
+                subCount: subService.subscriptions.length,
+                nodeCount: proxyService.nodes.length,
+              ),
+            ),
+          ),
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final sub = subService.subscriptions[index];
                 return _SubscriptionTile(
                   subscription: sub,
-                  onRefresh: () => subService.refreshSubscription(sub.id),
+                  onRefresh: () async {
+                    final nodes = await subService.refreshSubscription(sub.id);
+                    if (nodes.isNotEmpty && context.mounted) {
+                      proxyService.addNodes(nodes);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('已导入 ${nodes.length} 个节点'),
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
                   onEdit: () => _showEditDialog(context, sub),
                   onDelete: () => _confirmDelete(context, sub),
                 );
@@ -96,6 +113,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                 ),
               ),
             ),
+          const SliverToBoxAdapter(child: SizedBox(height: 80)),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -140,7 +158,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               if (urlController.text.trim().isNotEmpty) {
                 final sub = SubscriptionInfo(
                   id: const Uuid().v4(),
@@ -149,11 +167,27 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                       : nameController.text.trim(),
                   url: urlController.text.trim(),
                 );
-                context.read<SubscriptionService>().addSubscription(sub);
+                final subService = context.read<SubscriptionService>();
+                final proxyService = context.read<ProxyService>();
+                await subService.addSubscription(sub);
+                if (!ctx.mounted) return;
                 Navigator.pop(ctx);
+                final nodes = await subService.refreshSubscription(sub.id);
+                if (nodes.isNotEmpty) {
+                  proxyService.addNodes(nodes);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('已导入 ${nodes.length} 个节点'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                }
               }
             },
-            child: const Text('添加'),
+            child: const Text('添加并导入'),
           ),
         ],
       ),
@@ -235,6 +269,106 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
   }
 }
 
+class _SubscriptionSummary extends StatelessWidget {
+  final int subCount;
+  final int nodeCount;
+
+  const _SubscriptionSummary({
+    required this.subCount,
+    required this.nodeCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            _SummaryChip(
+              icon: Icons.rss_feed,
+              label: '订阅',
+              value: '$subCount',
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 16),
+            _SummaryChip(
+              icon: Icons.dns,
+              label: '节点',
+              value: '$nodeCount',
+              color: theme.colorScheme.tertiary,
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () async {
+                final subService = context.read<SubscriptionService>();
+                final proxyService = context.read<ProxyService>();
+                final nodes = await subService.refreshAll();
+                if (nodes.isNotEmpty) {
+                  proxyService.addNodes(nodes);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('已导入 ${nodes.length} 个节点'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('全部刷新'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _SummaryChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
+              ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
 class _SubscriptionTile extends StatelessWidget {
   final SubscriptionInfo subscription;
   final VoidCallback onRefresh;
@@ -312,10 +446,10 @@ class _SubscriptionTile extends StatelessWidget {
                   style: theme.textTheme.bodySmall,
                 ),
                 const Spacer(),
-                IconButton.outlined(
+                FilledButton.tonalIcon(
                   onPressed: onRefresh,
-                  icon: const Icon(Icons.refresh, size: 20),
-                  tooltip: '刷新',
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('刷新导入'),
                 ),
               ],
             ),
