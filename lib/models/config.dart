@@ -1,14 +1,28 @@
+// 核心数据模型定义
+// 定义代理客户端的所有数据结构：内核类型、代理协议、节点配置、DNS 配置、代理配置、路由规则
+
 import 'dart:convert';
 
+/// 内核类型枚举
+///
+/// 支持三种代理内核：
+/// - singbox：SagerNet/sing-box，高性能通用代理平台
+/// - mihomo：MetaCubeX/mihomo (Clash Meta)，兼容 Clash API
+/// - v2ray：XTLS/Xray-core，支持 VLESS/XTLS 等协议
 enum KernelType {
   singbox('sing-box', 'SagerNet/sing-box'),
   mihomo('mihomo', 'MetaCubeX/mihomo'),
   v2ray('v2ray', 'XTLS/Xray-core');
 
+  /// 内核显示名称
   final String label;
+
+  /// GitHub 仓库路径（用于下载和版本查询）
   final String repo;
+
   const KernelType(this.label, this.repo);
 
+  /// 根据名称字符串查找内核类型，默认返回 singbox
   static KernelType fromName(String name) {
     return KernelType.values.firstWhere(
       (e) => e.name == name,
@@ -17,15 +31,33 @@ enum KernelType {
   }
 }
 
+/// 内核安装状态枚举
+///
+/// 状态流转：notInstalled → downloading → installing → installed → running
+/// 任何阶段都可能进入 error 状态
 enum KernelStatus {
+  /// 未安装
   notInstalled,
+
+  /// 下载中
   downloading,
+
+  /// 安装中（解压）
   installing,
+
+  /// 已安装
   installed,
+
+  /// 运行中
   running,
+
+  /// 停止中
   stopping,
+
+  /// 错误
   error;
 
+  /// 状态的中文描述
   String get description {
     switch (this) {
       case KernelStatus.notInstalled:
@@ -46,17 +78,38 @@ enum KernelStatus {
   }
 }
 
+/// 代理协议枚举
+///
+/// 支持 9 种主流代理协议
 enum ProxyProtocol {
+  /// VMess 协议（V2Ray 原生）
   vmess,
+
+  /// VLESS 协议（轻量级，支持 XTLS）
   vless,
+
+  /// Trojan 协议（伪装 HTTPS）
   trojan,
+
+  /// Shadowsocks 协议
   shadowsocks,
+
+  /// Hysteria 协议（基于 QUIC）
   hysteria,
+
+  /// Hysteria2 协议（Hysteria 第二代）
   hysteria2,
+
+  /// TUIC 协议（基于 QUIC 的代理）
   tuic,
+
+  /// Naive 协议（基于 HTTPS 的代理）
   naive,
+
+  /// WireGuard 协议（VPN 隧道）
   wireguard;
 
+  /// 协议的显示名称
   String get label {
     switch (this) {
       case ProxyProtocol.vmess:
@@ -80,6 +133,7 @@ enum ProxyProtocol {
     }
   }
 
+  /// 根据字符串查找协议类型，默认返回 VMess
   static ProxyProtocol fromString(String s) {
     return ProxyProtocol.values.firstWhere(
       (e) => e.name.toLowerCase() == s.toLowerCase(),
@@ -88,14 +142,33 @@ enum ProxyProtocol {
   }
 }
 
+/// 节点配置数据模型
+///
+/// 表示一个代理服务器节点，包含连接所需的所有信息
+/// 以及测速结果（延迟、下载速度）
 class NodeConfig {
+  /// 节点唯一标识
   final String id;
+
+  /// 节点名称（显示用）
   final String name;
+
+  /// 代理协议类型
   final ProxyProtocol protocol;
+
+  /// 服务器地址（域名或 IP）
   final String address;
+
+  /// 服务器端口
   final int port;
+
+  /// 协议特定参数（如 UUID、密码、加密方式等）
   final Map<String, dynamic> extra;
+
+  /// 延迟（毫秒），null 表示未测速，-1 表示超时
   int? latencyMs;
+
+  /// 下载速度（字节/秒），null 表示未测速
   double? downloadSpeed;
 
   NodeConfig({
@@ -131,6 +204,7 @@ class NodeConfig {
     );
   }
 
+  /// 序列化为 JSON（不包含测速结果）
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -140,6 +214,7 @@ class NodeConfig {
         'extra': extra,
       };
 
+  /// 从 JSON 反序列化
   factory NodeConfig.fromJson(Map<String, dynamic> json) => NodeConfig(
         id: json['id'] as String,
         name: json['name'] as String,
@@ -149,22 +224,35 @@ class NodeConfig {
         extra: Map<String, dynamic>.from(json['extra'] as Map? ?? {}),
       );
 
+  /// 序列化为 JSON 字符串
   String toJsonString() => jsonEncode(toJson());
 
+  /// 从 JSON 字符串反序列化
   factory NodeConfig.fromJsonString(String s) =>
       NodeConfig.fromJson(jsonDecode(s) as Map<String, dynamic>);
 }
 
+/// DNS 模式枚举
+///
+/// - system：使用系统默认 DNS
+/// - custom：自定义 DNS 服务器列表
+/// - doh：DNS-over-HTTPS（加密 DNS 查询）
+/// - dot：DNS-over-TLS（TLS 加密 DNS 查询）
 enum DnsMode {
   system('system', '系统 DNS'),
   custom('custom', '自定义'),
   doh('doh', 'DNS-over-HTTPS'),
   dot('dot', 'DNS-over-TLS');
 
+  /// 模式值（用于序列化）
   final String value;
+
+  /// 模式显示名称
   final String label;
+
   const DnsMode(this.value, this.label);
 
+  /// 根据字符串查找 DNS 模式，默认返回 system
   static DnsMode fromString(String s) {
     return DnsMode.values.firstWhere(
       (e) => e.value == s,
@@ -173,12 +261,26 @@ enum DnsMode {
   }
 }
 
+/// DNS 配置数据模型
+///
+/// 配置 DNS 解析策略，支持自定义服务器、DoH、DoT
 class DnsConfig {
+  /// DNS 模式
   final DnsMode mode;
+
+  /// 主 DNS 服务器列表
   final List<String> servers;
+
+  /// 备用 DNS 服务器列表（国内 DNS）
   final List<String> fallbackServers;
+
+  /// 是否启用远程 DNS 解析（防 DNS 泄露）
   final bool remoteResolve;
+
+  /// DoH URL（如 https://dns.google/dns-query）
   final String dohUrl;
+
+  /// DoT 服务器地址（如 dns.google）
   final String dotServer;
 
   const DnsConfig({
@@ -208,6 +310,7 @@ class DnsConfig {
     );
   }
 
+  /// 序列化为 JSON
   Map<String, dynamic> toJson() => {
         'mode': mode.value,
         'servers': servers,
@@ -217,6 +320,7 @@ class DnsConfig {
         'dot_server': dotServer,
       };
 
+  /// 从 JSON 反序列化
   factory DnsConfig.fromJson(Map<String, dynamic> json) => DnsConfig(
         mode: DnsMode.fromString(json['mode'] as String? ?? 'system'),
         servers: (json['servers'] as List?)
@@ -233,19 +337,47 @@ class DnsConfig {
       );
 }
 
+/// 代理配置数据模型
+///
+/// 应用的核心配置，包含代理运行所需的所有参数
 class ProxyConfig {
+  /// 当前使用的内核类型
   final KernelType kernelType;
+
+  /// 本地监听地址
   final String localAddress;
+
+  /// 本地混合代理端口
   final int localPort;
+
+  /// SOCKS5 代理端口
   final int socksPort;
+
+  /// HTTP 代理端口
   final int httpPort;
+
+  /// 是否启用 TUN 模式（虚拟网卡全局代理）
   final bool tunEnabled;
+
+  /// 是否设置系统代理
   final bool systemProxy;
+
+  /// 是否允许局域网连接
   final bool lanSharing;
+
+  /// 是否启用广告屏蔽
   final bool adBlocking;
+
+  /// 是否启用智能节点选择
   final bool smartNode;
+
+  /// 订阅自动刷新间隔（分钟），0 表示不自动刷新
   final int subRefreshMinutes;
+
+  /// 节点列表
   final List<NodeConfig> nodes;
+
+  /// DNS 配置
   final DnsConfig dnsConfig;
 
   ProxyConfig({
@@ -296,6 +428,7 @@ class ProxyConfig {
     );
   }
 
+  /// 序列化为 JSON
   Map<String, dynamic> toJson() => {
         'kernel_type': kernelType.name,
         'local_address': localAddress,
@@ -312,6 +445,7 @@ class ProxyConfig {
         'dns_config': dnsConfig.toJson(),
       };
 
+  /// 从 JSON 反序列化
   factory ProxyConfig.fromJson(Map<String, dynamic> json) => ProxyConfig(
         kernelType:
             KernelType.fromName(json['kernel_type'] as String? ?? 'singbox'),
@@ -335,12 +469,26 @@ class ProxyConfig {
       );
 }
 
+/// 路由规则数据模型
+///
+/// 定义流量分流规则，支持多种匹配类型和目标
 class RoutingRule {
+  /// 规则唯一标识
   final String id;
+
+  /// 规则名称（显示用）
   final String name;
+
+  /// 匹配类型：domain / domain_keyword / domain_suffix / ip_cidr / geoip / geosite / process / protocol / port
   final String type;
+
+  /// 匹配值（域名、IP、GeoIP 代码等）
   final String match;
+
+  /// 目标：proxy（代理）/ direct（直连）/ block（屏蔽）
   final String target;
+
+  /// 是否启用
   final bool enabled;
 
   RoutingRule({
@@ -352,6 +500,7 @@ class RoutingRule {
     this.enabled = true,
   });
 
+  /// 支持的匹配类型列表
   static const typeOptions = [
     'domain',
     'domain_keyword',
@@ -364,8 +513,12 @@ class RoutingRule {
     'port',
   ];
 
+  /// 支持的目标列表
   static const targetOptions = ['proxy', 'direct', 'block'];
 
+  /// 预设路由规则列表
+  ///
+  /// 包含常用的分流规则：国内直连、广告屏蔽、Google/GitHub/Telegram 等走代理
   static const presetRules = [
     RoutingRule._preset('国内直连', 'geosite', 'cn', 'direct'),
     RoutingRule._preset('国内IP直连', 'geoip', 'cn', 'direct'),
@@ -383,10 +536,12 @@ class RoutingRule {
     RoutingRule._preset('Apple', 'geosite', 'apple', 'direct'),
   ];
 
+  /// 预设规则私有构造函数
   const RoutingRule._preset(this.name, this.type, this.match, this.target)
       : id = '',
         enabled = true;
 
+  /// 匹配类型的中文标签
   String get typeLabel {
     switch (type) {
       case 'domain':
@@ -412,6 +567,7 @@ class RoutingRule {
     }
   }
 
+  /// 目标的中文标签
   String get targetLabel {
     switch (target) {
       case 'proxy':
@@ -443,6 +599,7 @@ class RoutingRule {
     );
   }
 
+  /// 序列化为 JSON
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
@@ -452,6 +609,7 @@ class RoutingRule {
         'enabled': enabled,
       };
 
+  /// 从 JSON 反序列化
   factory RoutingRule.fromJson(Map<String, dynamic> json) => RoutingRule(
         id: json['id'] as String,
         name: json['name'] as String,

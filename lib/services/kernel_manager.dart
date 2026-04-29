@@ -1,3 +1,7 @@
+// 内核管理器
+// 负责代理内核（sing-box / mihomo / v2ray）的完整生命周期管理
+// 包括：安装检测、版本查询、下载安装、解压部署、删除卸载
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,31 +11,61 @@ import 'package:flutter/foundation.dart';
 import '../models/config.dart';
 import '../models/kernel_info.dart';
 
+/// 内核管理器 — 管理代理内核的安装、下载、版本和生命周期
+///
+/// 职责：
+/// - 检测本地已安装的内核二进制文件
+/// - 从 GitHub Releases 查询最新版本和发布列表
+/// - 下载内核压缩包（.zip / .gz）并自动解压安装
+/// - 设置可执行权限（Linux/macOS chmod +x）
+/// - 删除已安装的内核
+/// - 自动识别当前平台和架构（amd64 / arm64）
 class KernelManager extends ChangeNotifier {
+  /// 已安装内核信息映射，键为内核类型
   final Map<KernelType, KernelInfo> _kernels = {};
+
+  /// 内核状态映射，键为内核类型
   final Map<KernelType, KernelStatus> _statusMap = {};
+
+  /// 内核版本映射，键为内核类型
   final Map<KernelType, String> _versionMap = {};
+
+  /// 最近一次错误信息
   String? _error;
 
+  // ---- 公开 Getter ----
+
+  /// 已安装内核信息映射（不可变）
   Map<KernelType, KernelInfo> get kernels => Map.unmodifiable(_kernels);
+
+  /// 内核状态映射（不可变）
   Map<KernelType, KernelStatus> get statusMap => Map.unmodifiable(_statusMap);
+
+  /// 最近一次错误信息
   String? get error => _error;
 
+  /// 获取指定内核类型的安装状态
   KernelStatus getStatus(KernelType type) =>
       _statusMap[type] ?? KernelStatus.notInstalled;
 
+  /// 获取指定内核类型的版本号
   String? getVersion(KernelType type) => _versionMap[type];
 
+  /// 检查指定内核是否已安装
   bool isInstalled(KernelType type) {
     final status = _statusMap[type];
     return status == KernelStatus.installed || status == KernelStatus.running;
   }
 
+  /// 清除错误信息
   void clearError() {
     _error = null;
     notifyListeners();
   }
 
+  /// 获取指定内核类型的二进制文件名
+  ///
+  /// Windows 平台自动追加 .exe 后缀
   String getBinaryName(KernelType type) {
     final ext = Platform.isWindows ? '.exe' : '';
     switch (type) {
@@ -44,6 +78,9 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  /// 获取指定内核类型的二进制文件完整路径
+  ///
+  /// 优先使用 KernelInfo 中记录的路径，否则使用默认路径
   Future<String> getBinaryPath(KernelType type) async {
     final kernelInfo = _kernels[type];
     if (kernelInfo != null && kernelInfo.binaryPath.isNotEmpty) {
@@ -53,6 +90,7 @@ class KernelManager extends ChangeNotifier {
     return '${dir.path}/${getBinaryName(type)}';
   }
 
+  /// 初始化内核管理器，检测所有内核类型的安装状态
   Future<void> init() async {
     for (final type in KernelType.values) {
       _statusMap[type] = KernelStatus.notInstalled;
@@ -61,6 +99,9 @@ class KernelManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 检测指定内核类型是否已安装
+  ///
+  /// 在 assets/bin 目录下查找对应的二进制文件
   Future<void> _checkInstalled(KernelType type) async {
     try {
       final dir = await getKernelDir();
@@ -81,6 +122,10 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  /// 从 GitHub Releases API 获取指定内核的最新版本号
+  ///
+  /// 调用 https://api.github.com/repos/{repo}/releases/latest
+  /// 返回 tag_name（去掉 'v' 前缀），如 "1.8.0"
   Future<String> getLatestVersion(KernelType type) async {
     try {
       final client = HttpClient();
@@ -103,6 +148,10 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  /// 从 GitHub Releases API 获取指定内核的发布列表
+  ///
+  /// [count] 获取的发布数量，默认20条
+  /// 返回包含标签、名称、发布时间、下载资源等信息的列表
   Future<List<KernelReleaseInfo>> getReleaseList(KernelType type, {int count = 20}) async {
     try {
       final client = HttpClient();
@@ -137,10 +186,21 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  /// 下载进度，0.0 ~ 1.0，null 表示无法获取总大小
   double? _downloadProgress;
 
+  /// 下载进度（0.0 ~ 1.0）
   double? get downloadProgress => _downloadProgress;
 
+  /// 下载并安装指定内核
+  ///
+  /// 流程：
+  /// 1. 确定版本号（未指定则查询最新版本）
+  /// 2. 根据平台和架构构建下载 URL
+  /// 3. 下载压缩包到临时文件，实时更新进度
+  /// 4. 解压安装（.zip 使用 ZipDecoder，.gz 使用 GZipDecoder）
+  /// 5. 设置可执行权限（Linux/macOS）
+  /// 6. 更新安装状态和版本信息
   Future<void> downloadKernel(KernelType type, {String? version}) async {
     _statusMap[type] = KernelStatus.downloading;
     _downloadProgress = 0;
@@ -212,6 +272,11 @@ class KernelManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 安装内核：解压压缩包并设置权限
+  ///
+  /// 支持 .zip 和 .gz 两种压缩格式
+  /// 安装完成后删除临时压缩包
+  /// 非 Windows 平台自动设置 chmod +x 可执行权限
   Future<void> _installKernel(
     KernelType type,
     String archivePath,
@@ -235,6 +300,7 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  /// 解压 ZIP 格式压缩包到目标目录
   Future<void> _extractZip(List<int> bytes, String targetDir) async {
     final archive = ZipDecoder().decodeBytes(bytes);
     for (final file in archive) {
@@ -249,6 +315,9 @@ class KernelManager extends ChangeNotifier {
     }
   }
 
+  /// 解压 GZ 格式压缩包到目标目录
+  ///
+  /// GZ 文件直接解压为内核二进制文件
   Future<void> _extractGz(
     List<int> bytes,
     String targetDir,
@@ -260,6 +329,10 @@ class KernelManager extends ChangeNotifier {
     await outputFile.writeAsBytes(decompressed);
   }
 
+  /// 删除指定内核
+  ///
+  /// 运行中的内核不允许删除
+  /// 删除二进制文件并清除状态信息
   Future<void> deleteKernel(KernelType type) async {
     if (_statusMap[type] == KernelStatus.running) {
       _error = 'Cannot delete running kernel';
@@ -286,6 +359,9 @@ class KernelManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 读取本地已安装内核的版本号
+  ///
+  /// 从 {kernel_name}.version 文件读取版本信息
   Future<String> _readInstalledVersion(KernelType type) async {
     try {
       final dir = await getKernelDir();
@@ -297,6 +373,10 @@ class KernelManager extends ChangeNotifier {
     return 'unknown';
   }
 
+  /// 获取内核文件存储目录
+  ///
+  /// 默认路径：{应用目录}/assets/bin
+  /// 目录不存在时自动创建
   Future<Directory> getKernelDir() async {
     final appDir = Directory.current;
     final kernelDir = Directory('${appDir.path}/assets/bin');
@@ -306,6 +386,9 @@ class KernelManager extends ChangeNotifier {
     return kernelDir;
   }
 
+  /// 获取当前平台标识字符串
+  ///
+  /// 返回：windows / darwin / linux / android / unknown
   String _getCurrentPlatform() {
     if (Platform.isWindows) return 'windows';
     if (Platform.isMacOS) return 'darwin';
@@ -314,6 +397,13 @@ class KernelManager extends ChangeNotifier {
     return 'unknown';
   }
 
+  /// 获取当前 CPU 架构标识
+  ///
+  /// 检测顺序：
+  /// 1. Dart VM 版本字符串中的 arm64/aarch64
+  /// 2. Windows PROCESSOR_ARCHITECTURE 环境变量
+  /// 3. macOS/Linux uname -m 命令输出
+  /// 默认返回 amd64
   String _getCurrentArch() {
     final version = Platform.version.toLowerCase();
     if (version.contains('arm64') || version.contains('aarch64')) return 'arm64';

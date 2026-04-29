@@ -1,14 +1,36 @@
+// 毛玻璃主题组件库
+// 提供 Glassmorphism（玻璃拟态）风格的 UI 组件
+// 包括主题配置、毛玻璃卡片、毛玻璃按钮、毛玻璃开关
+
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+/// 毛玻璃主题配置
+///
+/// 定义亮色/暗色两套主题，使用 Material 3 规范
+/// 主色调：#6C5CE7（紫色），强调色：#00CEFF（青色）
 class GlassTheme {
+  /// 主色调 — 紫色
   static const Color primaryColor = Color(0xFF6C5CE7);
+
+  /// 强调色 — 青色
   static const Color accentColor = Color(0xFF00CEFF);
+
+  /// 成功色 — 绿色
   static const Color successColor = Color(0xFF00E676);
+
+  /// 警告色 — 琥珀色
   static const Color warningColor = Color(0xFFFFB300);
+
+  /// 错误色 — 红色
   static const Color errorColor = Color(0xFFFF5252);
 
+  /// 亮色主题
+  ///
+  /// 背景色：#F0F2F5（浅灰）
+  /// 卡片：无阴影，16px 圆角
+  /// AppBar/NavigationBar：透明背景
   static ThemeData get lightTheme => ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
@@ -32,6 +54,11 @@ class GlassTheme {
         ),
       );
 
+  /// 暗色主题
+  ///
+  /// 背景色：#0A0E27（深蓝黑）
+  /// 卡片：5% 白色透明度，16px 圆角
+  /// AppBar/NavigationBar：透明背景
   static ThemeData get darkTheme => ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
@@ -57,14 +84,42 @@ class GlassTheme {
       );
 }
 
+/// 毛玻璃风格卡片组件
+///
+/// 使用 BackdropFilter 实现背景模糊效果
+/// 支持自定义模糊程度、透明度、圆角、边框、内边距、外边距
+///
+/// 用法：
+/// ```dart
+/// GlassCard(
+///   blur: 16,
+///   opacity: 0.1,
+///   child: Text('毛玻璃卡片'),
+/// )
+/// ```
 class GlassCard extends StatelessWidget {
+  /// 子组件
   final Widget child;
+
+  /// 模糊强度（sigma），默认12
   final double blur;
+
+  /// 背景透明度，默认0.08
   final double opacity;
+
+  /// 圆角半径，默认16
   final double borderRadius;
+
+  /// 内边距，默认16
   final EdgeInsetsGeometry? padding;
+
+  /// 外边距
   final EdgeInsetsGeometry? margin;
+
+  /// 自定义背景色，覆盖默认透明度计算
   final Color? tintColor;
+
+  /// 自定义边框
   final Border? border;
 
   const GlassCard({
@@ -111,10 +166,21 @@ class GlassCard extends StatelessWidget {
   }
 }
 
+/// 毛玻璃风格按钮组件
+///
+/// 使用 BackdropFilter 实现背景模糊效果
+/// 包含 InkWell 水波纹点击效果
 class GlassButton extends StatelessWidget {
+  /// 子组件（通常为 Text 或 Icon）
   final Widget child;
+
+  /// 点击回调
   final VoidCallback? onPressed;
+
+  /// 自定义背景色
   final Color? color;
+
+  /// 圆角半径，默认12
   final double borderRadius;
 
   const GlassButton({
@@ -159,9 +225,18 @@ class GlassButton extends StatelessWidget {
   }
 }
 
+/// 毛玻璃风格开关组件
+///
+/// 自定义动画开关，支持亮色/暗色主题自适应
+/// 开启时显示主色调，关闭时显示灰色/暗色
 class GlassSwitch extends StatelessWidget {
+  /// 当前开关状态
   final bool value;
+
+  /// 状态变化回调
   final ValueChanged<bool> onChanged;
+
+  /// 开启时的颜色，默认使用主色调
   final Color? activeColor;
 
   const GlassSwitch({

@@ -1,9 +1,28 @@
+// 配置适配器
+// 将应用内部数据模型转换为各内核可识别的配置格式
+// 支持 sing-box / mihomo / v2ray 三种内核配置生成
+
 import '../models/config.dart';
 import '../models/singbox_config.dart';
 
+/// 配置适配器 — 将应用配置转换为内核配置格式
+///
+/// 职责：
+/// - 生成 sing-box JSON 配置（inbounds / outbounds / route / DNS / TUN）
+/// - 生成 mihomo YAML 兼容的 JSON 配置（proxies / rules / DNS / TUN）
+/// - 生成 v2ray JSON 配置（inbounds / outbounds / routing / DNS / TUN）
+/// - 将 NodeConfig 转换为各内核的出站代理格式
+/// - 支持 9 种代理协议：VMess / VLESS / Trojan / Shadowsocks / Hysteria / Hysteria2 / TUIC / Naive / WireGuard
 class ConfigAdapter {
   ConfigAdapter._();
 
+  /// 构建 DNS 配置
+  ///
+  /// 支持四种 DNS 模式：
+  /// - system：使用系统 DNS，不生成配置
+  /// - custom：自定义 DNS 服务器列表
+  /// - doh：DNS-over-HTTPS
+  /// - dot：DNS-over-TLS
   static Map<String, dynamic> _buildDnsConfig(ProxyConfig proxyConfig) {
     final dns = proxyConfig.dnsConfig;
     if (dns.mode == DnsMode.system) return {};
@@ -48,6 +67,14 @@ class ConfigAdapter {
     };
   }
 
+  /// 生成 sing-box 内核配置
+  ///
+  /// 配置结构：
+  /// - inbounds：SOCKS + HTTP 入站，TUN 模式时追加 TUN 入站
+  /// - outbounds：代理出站 + urltest 自动选择 + direct/block/dns
+  /// - route：路由规则（广告屏蔽 + 用户自定义规则）
+  /// - experimental：Clash API + TUN 配置
+  /// - dns：DNS 服务器配置
   static Map<String, dynamic> toSingboxConfig(
     ProxyConfig proxyConfig,
     NodeConfig? activeNode,
@@ -161,6 +188,10 @@ class ConfigAdapter {
     return result;
   }
 
+  /// 将 NodeConfig 转换为 sing-box 出站代理格式
+  ///
+  /// 支持 9 种协议：VMess / VLESS / Trojan / Shadowsocks /
+  /// Hysteria / Hysteria2 / TUIC / Naive / WireGuard
   static SingboxOutbound _nodeToSingboxOutbound(NodeConfig node) {
     final extra = Map<String, dynamic>.from(node.extra);
 
@@ -327,6 +358,15 @@ class ConfigAdapter {
     }
   }
 
+  /// 生成 mihomo 内核配置
+  ///
+  /// 配置结构：
+  /// - mixed-port / socks-port / port：代理端口
+  /// - tun：TUN 模式配置
+  /// - proxies：代理节点列表
+  /// - proxy-groups：代理组（PROXY 选择组）
+  /// - rules：路由规则（广告屏蔽 + 用户自定义规则 + MATCH 兜底）
+  /// - dns：DNS 配置（fake-ip 模式）
   static Map<String, dynamic> toMihomoConfig(
     ProxyConfig proxyConfig,
     NodeConfig? activeNode,
@@ -410,6 +450,10 @@ class ConfigAdapter {
     };
   }
 
+  /// 将 NodeConfig 转换为 mihomo 代理格式
+  ///
+  /// 支持 VMess / VLESS / Trojan / Shadowsocks / Hysteria2
+  /// 其他协议降级为 socks5
   static Map<String, dynamic> _nodeToMihomoProxy(NodeConfig node) {
     final extra = Map<String, dynamic>.from(node.extra);
 
@@ -474,6 +518,13 @@ class ConfigAdapter {
     }
   }
 
+  /// 生成 v2ray 内核配置
+  ///
+  /// 配置结构：
+  /// - inbounds：SOCKS + HTTP 入站，TUN 模式时追加 dokodemo-door
+  /// - outbounds：代理出站 + direct + block
+  /// - routing：路由规则（广告屏蔽 + 用户自定义规则）
+  /// - dns：DNS 服务器配置
   static Map<String, dynamic> toV2rayConfig(
     ProxyConfig proxyConfig,
     NodeConfig? activeNode,
@@ -617,6 +668,10 @@ class ConfigAdapter {
     };
   }
 
+  /// 将 NodeConfig 转换为 v2ray 出站代理格式
+  ///
+  /// 支持 VMess / VLESS / Trojan / Shadowsocks
+  /// 其他协议降级为 socks
   static Map<String, dynamic> _nodeToV2rayOutbound(NodeConfig node) {
     final extra = Map<String, dynamic>.from(node.extra);
 

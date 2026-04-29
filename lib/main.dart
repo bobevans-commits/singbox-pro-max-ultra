@@ -1,9 +1,12 @@
+// ProxCore 应用入口
+// 多内核代理客户端，支持 sing-box / mihomo / v2ray
+// 初始化所有服务并通过 Provider 注入到 Widget 树
+
 import 'dart:io';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:window_manager/window_manager.dart';
 
 import 'models/config.dart';
 import 'screens/home_screen.dart';
@@ -25,23 +28,21 @@ import 'utils/app_utils.dart';
 import 'widgets/glass_theme.dart';
 import 'widgets/proxy_link_importer.dart';
 
+/// 应用入口函数
+///
+/// 初始化流程：
+/// 1. 初始化 Flutter 绑定
+/// 2. 初始化配置存储服务
+/// 3. 初始化内核管理器（检测已安装内核）
+/// 4. 初始化代理服务（加载配置和节点）
+/// 5. 初始化订阅服务（加载订阅列表，配置自动刷新）
+/// 6. 初始化 Clash API、智能路由、GeoIP/GeoSite、WebDAV 同步
+/// 7. 注入依赖到 ProxyService
+/// 8. 初始化系统托盘（桌面平台）
+/// 9. 启动应用（MultiProvider + MyApp）
+/// 10. 配置窗口（bitsdojo_window：大小、最小尺寸、居中、标题）
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    await windowManager.ensureInitialized();
-    const windowOptions = WindowOptions(
-      size: Size(960, 680),
-      minimumSize: Size(480, 400),
-      center: true,
-      backgroundColor: Colors.transparent,
-      titleBarStyle: TitleBarStyle.hidden,
-      title: 'ProxCore',
-    );
-    await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.show();
-    });
-  }
 
   final configStorage = ConfigStorageService();
   await configStorage.init();
@@ -70,12 +71,12 @@ void main() async {
   proxyService.setClashApi(clashApi);
   proxyService.setSmartRouter(smartRouter);
 
-  final trayService = TrayService(proxyService);
+  TrayService? trayService;
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    trayService = TrayService(proxyService);
     await trayService.init();
+    proxyService.addListener(() => trayService?.update());
   }
-
-  proxyService.addListener(() => trayService.update());
 
   runApp(
     MultiProvider(
@@ -103,9 +104,15 @@ void main() async {
   });
 }
 
+/// 应用根组件
+///
+/// 管理主题模式（亮色/暗色），提供全局主题切换方法
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
+  /// 切换主题模式的静态方法
+  ///
+  /// 通过 findAncestorStateOfType 查找 _MyAppState 并调用 toggleTheme
   static void toggleThemeOf(BuildContext context) {
     final state = context.findAncestorStateOfType<_MyAppState>();
     state?.toggleTheme();
@@ -115,15 +122,22 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
+/// MyApp 状态管理
+///
+/// 管理当前主题模式，默认跟随系统
 class _MyAppState extends State<MyApp> {
+  /// 当前主题模式
   ThemeMode _themeMode = ThemeMode.system;
 
+  /// 获取当前主题模式
   ThemeMode get themeMode => _themeMode;
 
+  /// 设置主题模式
   void setThemeMode(ThemeMode mode) {
     setState(() => _themeMode = mode);
   }
 
+  /// 切换亮色/暗色主题
   void toggleTheme() {
     setState(() {
       _themeMode = _themeMode == ThemeMode.light
@@ -145,6 +159,10 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
+/// 自定义标题栏组件
+///
+/// 使用 bitsdojo_window 实现无边框窗口的自定义标题栏
+/// 包含：可拖动区域、窗口标题、最小化/最大化/关闭按钮
 class _CustomTitleBar extends StatelessWidget {
   const _CustomTitleBar();
 
@@ -197,6 +215,10 @@ class _CustomTitleBar extends StatelessWidget {
   }
 }
 
+/// 主导航组件
+///
+/// 底部导航栏 + 侧边抽屉 + 浮动添加按钮
+/// 四个页面：仪表板、订阅、日志、设置
 class MainNavigation extends StatefulWidget {
   const MainNavigation({super.key});
 
@@ -204,9 +226,12 @@ class MainNavigation extends StatefulWidget {
   State<MainNavigation> createState() => _MainNavigationState();
 }
 
+/// MainNavigation 状态管理
 class _MainNavigationState extends State<MainNavigation> {
+  /// 当前选中的导航索引
   int _currentIndex = 0;
 
+  /// 四个主页面
   final _screens = const [
     HomeScreen(),
     SubscriptionsScreen(),
@@ -214,6 +239,9 @@ class _MainNavigationState extends State<MainNavigation> {
     SettingsScreen(),
   ];
 
+  /// 显示节点列表底部弹窗
+  ///
+  /// 使用 DraggableScrollableSheet 实现可拖拽高度的节点列表
   void _showNodeList() {
     showModalBottomSheet(
       context: context,
@@ -235,6 +263,9 @@ class _MainNavigationState extends State<MainNavigation> {
     );
   }
 
+  /// 显示添加节点选项底部弹窗
+  ///
+  /// 三种添加方式：手动添加、导入链接、从订阅导入
   void _showAddNodeOptions() {
     showModalBottomSheet(
       context: context,
@@ -355,9 +386,17 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 }
 
+/// 应用侧边抽屉
+///
+/// 包含：节点列表入口、路由规则入口、主题切换、关于
 class _AppDrawer extends StatelessWidget {
+  /// 主题切换回调
   final VoidCallback onToggleTheme;
+
+  /// 打开路由规则编辑器回调
   final VoidCallback onOpenRouting;
+
+  /// 打开节点列表回调
   final VoidCallback onOpenNodeList;
 
   const _AppDrawer({
@@ -432,8 +471,20 @@ class _AppDrawer extends StatelessWidget {
   }
 }
 
+/// 节点列表底部弹窗
+///
+/// 支持功能：
+/// - 排序（默认/延迟升序/延迟降序/名称）
+/// - 按协议筛选
+/// - 按协议分组显示
+/// - 批量选择和删除
+/// - 全部测速
+/// - 单节点连接/测速/编辑/删除
 class _NodeListSheet extends StatefulWidget {
+  /// 滚动控制器
   final ScrollController scrollController;
+
+  /// 添加节点回调
   final VoidCallback onAdd;
 
   const _NodeListSheet({required this.scrollController, required this.onAdd});
@@ -442,13 +493,24 @@ class _NodeListSheet extends StatefulWidget {
   State<_NodeListSheet> createState() => _NodeListSheetState();
 }
 
+/// _NodeListSheet 状态管理
 class _NodeListSheetState extends State<_NodeListSheet> {
+  /// 当前排序模式
   _NodeSortMode _sortMode = _NodeSortMode.defaultOrder;
+
+  /// 协议筛选，null 表示不筛选
   ProxyProtocol? _filterProtocol;
+
+  /// 是否按协议分组显示
   bool _groupByProtocol = false;
+
+  /// 是否处于批量选择模式
   bool _selectMode = false;
+
+  /// 批量选中的节点 ID 集合
   final Set<String> _selectedIds = {};
 
+  /// 应用排序和筛选
   List<NodeConfig> _applySortAndFilter(List<NodeConfig> nodes) {
     var filtered = _filterProtocol != null
         ? nodes.where((n) => n.protocol == _filterProtocol).toList()
@@ -476,6 +538,7 @@ class _NodeListSheetState extends State<_NodeListSheet> {
     return filtered;
   }
 
+  /// 按协议分组
   Map<ProxyProtocol, List<NodeConfig>> _groupByProtocolFn(
     List<NodeConfig> nodes,
   ) {
@@ -687,6 +750,7 @@ class _NodeListSheetState extends State<_NodeListSheet> {
     );
   }
 
+  /// 构建扁平列表
   Widget _buildFlatList(
     BuildContext context,
     List<NodeConfig> nodes,
@@ -701,6 +765,7 @@ class _NodeListSheetState extends State<_NodeListSheet> {
     );
   }
 
+  /// 构建按协议分组列表
   Widget _buildGroupedList(
     BuildContext context,
     List<NodeConfig> nodes,
@@ -737,6 +802,10 @@ class _NodeListSheetState extends State<_NodeListSheet> {
     );
   }
 
+  /// 构建单个节点列表项
+  ///
+  /// 显示：协议图标、活跃指示器、节点名称、延迟标签、协议/地址信息
+  /// 右键菜单：连接、测速、编辑、删除、筛选同协议
   Widget _buildNodeTile(
     BuildContext context,
     NodeConfig node,
@@ -869,4 +938,17 @@ class _NodeListSheetState extends State<_NodeListSheet> {
   }
 }
 
-enum _NodeSortMode { defaultOrder, latencyAsc, latencyDesc, nameAsc }
+/// 节点排序模式
+enum _NodeSortMode {
+  /// 默认顺序
+  defaultOrder,
+
+  /// 延迟升序
+  latencyAsc,
+
+  /// 延迟降序
+  latencyDesc,
+
+  /// 名称升序
+  nameAsc,
+}
