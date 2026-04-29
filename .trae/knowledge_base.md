@@ -21,6 +21,7 @@ main.dart (MultiProvider: KernelManager, ProxyService, SubscriptionService)
 ├── services/proxy_service.dart  核心状态(ChangeNotifier)
 ├── services/kernel_manager.dart 内核下载/安装/管理(ChangeNotifier)
 ├── services/subscription_service.dart 订阅刷新/解析(ChangeNotifier)
+├── services/system_proxy_service.dart 系统代理设置(Windows注册表/macOS networksetup/Linux env)
 ├── services/config_storage_service.dart SharedPreferences持久化
 ├── models/config.dart          ProxyConfig/NodeConfig/RoutingRule/DnsConfig
 ├── models/kernel_info.dart     KernelInfo/KernelReleaseInfo
@@ -72,6 +73,10 @@ mode(system/custom/doh/dot), servers, fallbackServers, remoteResolve, dohUrl, do
 - **节点管理**: addNode/addNodes/updateNode/deleteNode/clearNodes
 - **TUN**: isKernelInstalled() / activeKernelType / kernelManager / toggleTun(bool)
   - toggleTun: 检查内核→更新config→运行中则自动restart
+- **智能节点**: _pickSmartNode() → 未测速节点先测速→findBestNode→start时自动选最优
+  - 触发条件: config.smartNode==true 时 start() 自动执行
+- **系统代理**: setSystemProxy(bool) → 启用/禁用系统HTTP代理
+  - 启动成功后自动应用(若systemProxy=true) / 停止时自动移除 / dispose时清理
 - **测速**: testLatency / testAllLatency / testDownloadSpeed / findBestNode
 - **流量**: uploadSpeed/downloadSpeed/uploadBytes/downloadBytes/speedHistory(60条)
 - **日志**: logs(≤1000) / logStream / clearLogs
@@ -97,6 +102,12 @@ mode(system/custom/doh/dot), servers, fallbackServers, remoteResolve, dohUrl, do
 - **存储**: SharedPreferences (JSON序列化)
 - **Keys**: proxy_config / nodes / routing_rules / active_kernel / subscriptions
 - **导入导出**: exportConfig(全量JSON) / importConfig(覆盖写入)
+
+### SystemProxyService (系统代理)
+- **Windows**: reg add HKCU\...\Internet Settings → ProxyEnable=1 + ProxyServer=host:port + ProxyOverride(本地绕过)
+- **macOS**: networksetup -setwebproxy/-setsecurewebproxy/-setsocksfirewallproxy + networksetup -listallnetworkservices
+- **Linux**: 写入 proxy_env.sh (http_proxy/https_proxy/ftp_proxy/no_proxy)
+- **API**: enable(host, httpPort, socksPort?) / disable()
 
 ## 配置适配器 (utils/config_adapter.dart)
 
@@ -154,7 +165,8 @@ mode(system/custom/doh/dot), servers, fallbackServers, remoteResolve, dohUrl, do
 
 ### 设置页 (SettingsScreen)
 - 分区卡片: 内核/网络/规则/DNS/端口/数据/外观/关于
-- TUN开关: 同样有内核检测+引导安装(导航到KernelSettingsScreen)
+- TUN开关: 内核检测+_SettingsKernelInstallScreen(自动下载+安装后自动开启TUN)
+- 系统代理: 调用proxyService.setSystemProxy()即时生效
 - DNS设置: Dialog下拉模式+服务器+备用+DoH/DoT+远程解析
 - 端口设置: Dialog监听地址+SOCKS+HTTP
 - 数据: 导出(Share)/导入(FilePicker)/清除
@@ -182,7 +194,7 @@ mode(system/custom/doh/dot), servers, fallbackServers, remoteResolve, dohUrl, do
       → 取消: 结束
       → 前往安装:
         → HomeScreen: Navigator.push(_KernelInstallScreen) → 自动下载 → pop(true) → toggleTun(true)
-        → SettingsScreen: Navigator.push(KernelSettingsScreen) → 手动操作
+        → SettingsScreen: Navigator.push(_SettingsKernelInstallScreen) → 自动下载 → pop(true) → toggleTun(true)
 ```
 
 ## 内核下载流程

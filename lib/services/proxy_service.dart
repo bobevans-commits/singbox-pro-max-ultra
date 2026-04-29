@@ -25,6 +25,7 @@ class ProxyService extends ChangeNotifier {
   ProxyConfig _config = ProxyConfig();
   NodeConfig? _activeNode;
   Process? _process;
+  DateTime? _startedAt;
   int _uploadBytes = 0;
   int _downloadBytes = 0;
   int _uploadSpeed = 0;
@@ -44,6 +45,8 @@ class ProxyService extends ChangeNotifier {
   ProxyConfig get config => _config;
   NodeConfig? get activeNode => _activeNode;
   bool get isRunning => _state == ProxyState.running;
+  DateTime? get startedAt => _startedAt;
+  Duration? get uptime => _startedAt != null ? DateTime.now().difference(_startedAt!) : null;
   int get uploadBytes => _uploadBytes;
   int get downloadBytes => _downloadBytes;
   int get uploadSpeed => _uploadSpeed;
@@ -224,6 +227,7 @@ class ProxyService extends ChangeNotifier {
 
     _activeNode = node;
     _state = ProxyState.starting;
+    _startedAt = null;
     _uploadBytes = 0;
     _downloadBytes = 0;
     _uploadSpeed = 0;
@@ -258,11 +262,15 @@ class ProxyService extends ChangeNotifier {
         _addLog('[ERROR] $line');
       });
 
-      _process!.exitCode.then((code) {
+      _process!.exitCode.then((code) async {
         _addLog('[ProxyService] Process exited with code $code');
         if (_state == ProxyState.starting || _state == ProxyState.running) {
+          if (_config.systemProxy) {
+            await _removeSystemProxy();
+          }
           _state = ProxyState.stopped;
           _activeNode = null;
+          _startedAt = null;
           notifyListeners();
         }
       });
@@ -274,6 +282,7 @@ class ProxyService extends ChangeNotifier {
 
       if (exitCode == -1) {
         _state = ProxyState.running;
+        _startedAt = DateTime.now();
         _addLog('[ProxyService] Proxy started successfully');
         testLatency(node);
         if (_config.systemProxy) {
@@ -312,6 +321,7 @@ class ProxyService extends ChangeNotifier {
     _process = null;
     _state = ProxyState.stopped;
     _activeNode = null;
+    _startedAt = null;
     _uploadSpeed = 0;
     _downloadSpeed = 0;
 

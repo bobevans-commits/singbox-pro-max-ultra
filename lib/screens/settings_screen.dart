@@ -165,6 +165,25 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _SectionCard(
+                    title: '订阅',
+                    icon: Icons.sync,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.sync),
+                        title: const Text('自动刷新间隔'),
+                        subtitle: Text(
+                          config.subRefreshMinutes > 0
+                              ? '每 ${config.subRefreshMinutes} 分钟'
+                              : '未启用',
+                          style: theme.textTheme.labelSmall,
+                        ),
+                        trailing: const Icon(Icons.chevron_right, size: 18),
+                        onTap: () => _showSubRefreshSettings(context, config),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _SectionCard(
                     title: '端口',
                     icon: Icons.swap_vert,
                     children: [
@@ -539,6 +558,45 @@ class SettingsScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showSubRefreshSettings(BuildContext context, ProxyConfig config) {
+    final options = [0, 15, 30, 60, 120, 360, 720];
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('自动刷新间隔'),
+        children: [
+          '未启用',
+          '15 分钟',
+          '30 分钟',
+          '1 小时',
+          '2 小时',
+          '6 小时',
+          '12 小时',
+        ].asMap().entries.map((e) {
+          return SimpleDialogOption(
+            onPressed: () {
+              Navigator.pop(ctx);
+              final minutes = options[e.key];
+              final proxyService = context.read<ProxyService>();
+              proxyService.updateConfig(
+                config.copyWith(subRefreshMinutes: minutes),
+              );
+              final subService = context.read<SubscriptionService>();
+              subService.setupAutoRefresh(minutes);
+            },
+            child: Row(
+              children: [
+                Expanded(child: Text(e.value)),
+                if (config.subRefreshMinutes == options[e.key])
+                  const Icon(Icons.check, size: 16),
+              ],
+            ),
+          );
+        }).toList(),
       ),
     );
   }

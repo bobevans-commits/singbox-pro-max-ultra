@@ -55,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     isRunning: isRunning,
                     activeNode: activeNode,
                     nodeCount: proxyService.nodes.length,
+                    uptime: proxyService.uptime,
                     onToggle: () {
                       if (isRunning) {
                         proxyService.stop();
@@ -120,16 +121,76 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _UptimeText extends StatefulWidget {
+  final Duration uptime;
+
+  const _UptimeText({required this.uptime});
+
+  @override
+  State<_UptimeText> createState() => _UptimeTextState();
+}
+
+class _UptimeTextState extends State<_UptimeText> {
+  late Duration _uptime;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _uptime = widget.uptime;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {
+          _uptime = _uptime + const Duration(seconds: 1);
+        });
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _UptimeText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _uptime = widget.uptime;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      '运行时长 ${_formatDuration(_uptime)}',
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: Colors.green,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+}
+
 class _StatusHero extends StatelessWidget {
   final bool isRunning;
   final NodeConfig? activeNode;
   final int nodeCount;
+  final Duration? uptime;
   final VoidCallback onToggle;
 
   const _StatusHero({
     required this.isRunning,
     this.activeNode,
     required this.nodeCount,
+    this.uptime,
     required this.onToggle,
   });
 
@@ -183,6 +244,8 @@ class _StatusHero extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                  if (isRunning && uptime != null)
+                    _UptimeText(uptime: uptime!),
                   if (activeNode == null && !isRunning)
                     Text(
                       nodeCount > 0

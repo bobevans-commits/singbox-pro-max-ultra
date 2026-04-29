@@ -244,6 +244,7 @@ class ProxyConfig {
   final bool lanSharing;
   final bool adBlocking;
   final bool smartNode;
+  final int subRefreshMinutes;
   final List<NodeConfig> nodes;
   final DnsConfig dnsConfig;
 
@@ -258,6 +259,7 @@ class ProxyConfig {
     this.lanSharing = false,
     this.adBlocking = false,
     this.smartNode = false,
+    this.subRefreshMinutes = 0,
     this.nodes = const [],
     this.dnsConfig = const DnsConfig(),
   });
@@ -273,6 +275,7 @@ class ProxyConfig {
     bool? lanSharing,
     bool? adBlocking,
     bool? smartNode,
+    int? subRefreshMinutes,
     List<NodeConfig>? nodes,
     DnsConfig? dnsConfig,
   }) {
@@ -287,6 +290,7 @@ class ProxyConfig {
       lanSharing: lanSharing ?? this.lanSharing,
       adBlocking: adBlocking ?? this.adBlocking,
       smartNode: smartNode ?? this.smartNode,
+      subRefreshMinutes: subRefreshMinutes ?? this.subRefreshMinutes,
       nodes: nodes ?? this.nodes,
       dnsConfig: dnsConfig ?? this.dnsConfig,
     );
@@ -303,6 +307,7 @@ class ProxyConfig {
         'lan_sharing': lanSharing,
         'ad_blocking': adBlocking,
         'smart_node': smartNode,
+        'sub_refresh_minutes': subRefreshMinutes,
         'nodes': nodes.map((n) => n.toJson()).toList(),
         'dns_config': dnsConfig.toJson(),
       };
@@ -319,6 +324,7 @@ class ProxyConfig {
         lanSharing: json['lan_sharing'] as bool? ?? false,
         adBlocking: json['ad_blocking'] as bool? ?? false,
         smartNode: json['smart_node'] as bool? ?? false,
+        subRefreshMinutes: json['sub_refresh_minutes'] as int? ?? 0,
         nodes: (json['nodes'] as List?)
                 ?.map((n) => NodeConfig.fromJson(n as Map<String, dynamic>))
                 .toList() ??

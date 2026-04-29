@@ -29,6 +29,12 @@ void main() async {
 
   final subscriptionService = SubscriptionService(configStorage);
   await subscriptionService.init();
+  subscriptionService.onNodesRefreshed = (nodes) async {
+    proxyService.addNodes(nodes);
+  };
+  if (proxyService.config.subRefreshMinutes > 0) {
+    subscriptionService.setupAutoRefresh(proxyService.config.subRefreshMinutes);
+  }
 
   runApp(
     MultiProvider(

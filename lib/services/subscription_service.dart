@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -13,16 +14,41 @@ class SubscriptionService extends ChangeNotifier {
   List<SubscriptionInfo> _subscriptions = [];
   bool _isLoading = false;
   String? _error;
+  Timer? _autoRefreshTimer;
+  int _refreshMinutes = 0;
+  Future<void> Function(List<NodeConfig>)? onNodesRefreshed;
 
   List<SubscriptionInfo> get subscriptions => List.unmodifiable(_subscriptions);
   bool get isLoading => _isLoading;
   String? get error => _error;
+  int get refreshMinutes => _refreshMinutes;
 
   SubscriptionService(this._storage);
 
   Future<void> init() async {
     _subscriptions = _storage.loadSubscriptions();
     notifyListeners();
+  }
+
+  void setupAutoRefresh(int minutes) {
+    _autoRefreshTimer?.cancel();
+    _refreshMinutes = minutes;
+
+    if (minutes > 0) {
+      _autoRefreshTimer = Timer.periodic(
+        Duration(minutes: minutes),
+        (_) => _autoRefreshAll(),
+      );
+    }
+  }
+
+  Future<void> _autoRefreshAll() async {
+    if (_subscriptions.isEmpty) return;
+
+    final allNodes = await refreshAll();
+    if (allNodes.isNotEmpty && onNodesRefreshed != null) {
+      await onNodesRefreshed!(allNodes);
+    }
   }
 
   Future<void> addSubscription(SubscriptionInfo subscription) async {
@@ -272,5 +298,11 @@ class SubscriptionService extends ChangeNotifier {
 
   Future<void> _save() async {
     await _storage.saveSubscriptions(_subscriptions);
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
   }
 }

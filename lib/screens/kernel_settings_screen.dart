@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/config.dart';
 import '../models/kernel_info.dart';
 import '../services/kernel_manager.dart';
+import '../services/proxy_service.dart';
 
 class KernelSettingsScreen extends StatefulWidget {
   const KernelSettingsScreen({super.key});
@@ -107,12 +108,15 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
               final version = kernelManager.getVersion(type);
               final isInstalled = kernelManager.isInstalled(type);
               final progress = kernelManager.downloadProgress;
+              final proxyService = context.watch<ProxyService>();
+              final isActive = proxyService.config.kernelType == type;
 
               return _KernelCard(
                 type: type,
                 status: status,
                 version: version,
                 isInstalled: isInstalled,
+                isActive: isActive,
                 downloadProgress: status == KernelStatus.downloading
                     ? progress
                     : null,
@@ -121,6 +125,19 @@ class _KernelSettingsScreenState extends State<KernelSettingsScreen> {
                     _showVersionPicker(kernelManager, type),
                 onDelete: () => _deleteKernel(kernelManager, type),
                 onCheckUpdate: () => _checkUpdate(kernelManager, type),
+                onSetActive: isInstalled && !isActive
+                    ? () {
+                        proxyService.updateConfig(
+                          proxyService.config.copyWith(kernelType: type),
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('已切换到 ${type.label} 内核'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    : null,
               );
             }, childCount: KernelType.values.length),
           ),
@@ -393,22 +410,26 @@ class _KernelCard extends StatelessWidget {
   final KernelStatus status;
   final String? version;
   final bool isInstalled;
+  final bool isActive;
   final double? downloadProgress;
   final VoidCallback onDownload;
   final VoidCallback onDownloadVersion;
   final VoidCallback onDelete;
   final VoidCallback onCheckUpdate;
+  final VoidCallback? onSetActive;
 
   const _KernelCard({
     required this.type,
     required this.status,
     this.version,
     required this.isInstalled,
+    this.isActive = false,
     this.downloadProgress,
     required this.onDownload,
     required this.onDownloadVersion,
     required this.onDelete,
     required this.onCheckUpdate,
+    this.onSetActive,
   });
 
   Color _statusColor(BuildContext context) {
@@ -506,6 +527,27 @@ class _KernelCard extends StatelessWidget {
                               ),
                             ),
                           ],
+                          if (isActive) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                '当前使用',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       Text(
@@ -568,6 +610,15 @@ class _KernelCard extends StatelessWidget {
                     ),
                   ],
                   if (isInstalled) ...[
+                    if (!isActive && onSetActive != null)
+                      FilledButton.icon(
+                        onPressed: onSetActive,
+                        icon: const Icon(Icons.check_circle, size: 16),
+                        label: const Text('设为当前'),
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
                     OutlinedButton.icon(
                       onPressed: onCheckUpdate,
                       icon: const Icon(Icons.update, size: 16),

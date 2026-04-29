@@ -18,6 +18,9 @@ class _LogScreenState extends State<LogScreen> {
   LogLevel _filterLevel = LogLevel.all;
   StreamSubscription<String>? _logSubscription;
   bool _autoScroll = true;
+  bool _showSearch = false;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -40,23 +43,32 @@ class _LogScreenState extends State<LogScreen> {
   void dispose() {
     _logSubscription?.cancel();
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
   List<String> _filterLogs(List<String> logs) {
-    if (_filterLevel == LogLevel.all) return logs;
-    return logs.where((log) {
-      switch (_filterLevel) {
-        case LogLevel.error:
-          return log.contains('[ERROR]');
-        case LogLevel.warning:
-          return log.contains('[WARN]');
-        case LogLevel.info:
-          return log.contains('[INFO]');
-        default:
-          return true;
-      }
-    }).toList();
+    var filtered = logs;
+    if (_filterLevel != LogLevel.all) {
+      filtered = filtered.where((log) {
+        switch (_filterLevel) {
+          case LogLevel.error:
+            return log.contains('[ERROR]');
+          case LogLevel.warning:
+            return log.contains('[WARN]');
+          case LogLevel.info:
+            return log.contains('[INFO]');
+          default:
+            return true;
+        }
+      }).toList();
+    }
+    if (_searchQuery.isNotEmpty) {
+      filtered = filtered
+          .where((log) => log.toLowerCase().contains(_searchQuery.toLowerCase()))
+          .toList();
+    }
+    return filtered;
   }
 
   @override
@@ -70,8 +82,32 @@ class _LogScreenState extends State<LogScreen> {
         controller: _scrollController,
         slivers: [
           SliverAppBar(
-            title: const Text('日志'),
+            title: _showSearch
+                ? TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: '搜索日志...',
+                      border: InputBorder.none,
+                    ),
+                    style: theme.textTheme.bodyMedium,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                  )
+                : const Text('日志'),
             actions: [
+              IconButton(
+                onPressed: () {
+                  setState(() {
+                    _showSearch = !_showSearch;
+                    if (!_showSearch) {
+                      _searchQuery = '';
+                      _searchController.clear();
+                    }
+                  });
+                },
+                icon: Icon(_showSearch ? Icons.close : Icons.search),
+                tooltip: '搜索',
+              ),
               PopupMenuButton<LogLevel>(
                 icon: const Icon(Icons.filter_list),
                 onSelected: (level) {
