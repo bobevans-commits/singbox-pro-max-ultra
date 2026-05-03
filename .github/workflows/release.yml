@@ -70,7 +70,7 @@ jobs:
           Compress-Archive -Path dist\* -DestinationPath $zipName
           echo "ARTIFACT_NAME=$zipName" >> $env:GITHUB_ENV
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: ${{ env.ARTIFACT_NAME }}
@@ -138,7 +138,7 @@ jobs:
           hdiutil create -volname "${{ env.APP_NAME }}" -srcfolder dist -ov -format UDZO ${{ env.APP_NAME }}-macos-universal-${VERSION}.dmg
           echo "ARTIFACT_NAME=${{ env.APP_NAME }}-macos-universal-${VERSION}.dmg" >> $GITHUB_ENV
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-macos
           path: ${{ env.ARTIFACT_NAME }}
@@ -217,7 +217,7 @@ jobs:
           VERSION="${{ github.event.inputs.version || 'dev' }}"
           tar -czf ${{ env.APP_NAME }}-linux-x86_64-${VERSION}.tar.gz -C dist .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: |
@@ -277,7 +277,7 @@ jobs:
       - name: Build AAB
         run: flutter build appbundle --release
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-android
           path: |

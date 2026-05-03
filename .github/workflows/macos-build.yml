@@ -117,7 +117,7 @@ jobs:
           ls -la *.dmg
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-build-${{ github.run_number }}
           path: ${{ env.DMG_NAME }}
@@ -168,7 +168,7 @@ jobs:
         run: flutter build macos --debug
 
       - name: Upload debug artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-debug-build-${{ github.run_number }}
           path: build/macos/Build/Products/Debug/${{ env.APP_NAME }}.app

@@ -178,7 +178,7 @@ jobs:
           echo "ARTIFACT_TYPE=tar.gz" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-build-${{ github.run_number }}
           path: ${{ env.ARTIFACT_NAME }}
@@ -267,7 +267,7 @@ jobs:
           tar -czf ${{ env.APP_NAME }}-linux-arm64-${VERSION}.tar.gz -C dist .
 
       - name: Upload ARM64 artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-arm64-build-${{ github.run_number }}
           path: ${{ env.APP_NAME }}-linux-arm64-*.tar.gz
